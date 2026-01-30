@@ -1,0 +1,46 @@
+[package]
+name = "neywa"
+version = "0.2.0"
+edition = "2021"
+description = "AI-powered personal OS via Claude Code + Discord"
+authors = ["godofkim"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Discord bot
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Utilities
+dirs = "5"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Process management
+which = "6"
+
+# Async utilities
+async-trait = "0.1"
+
+# HTTP client for downloading attachments
+reqwest = { version = "0.11", features = ["rustls-tls"], default-features = false }
+
+# Regex for file path detection
+regex = "1"
+
+# Menu bar tray icon (macOS)
+tray-icon = "0.19"
+tao = { version = "0.30", default-features = false, features = ["rwh_06"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"

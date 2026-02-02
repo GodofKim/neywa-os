@@ -85,7 +85,7 @@ fn format_tool_input(tool_name: &str, input: &serde_json::Value) -> String {
             input.get("command")
                 .and_then(|v| v.as_str())
                 .map(|c| {
-                    let short = if c.len() > 50 { &c[..50] } else { c };
+                    let short: String = c.chars().take(50).collect();
                     format!("💻 {}", short)
                 })
                 .unwrap_or_default()

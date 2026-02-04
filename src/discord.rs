@@ -500,6 +500,32 @@ impl EventHandler for Handler {
             return;
         }
 
+        // Handle update command
+        if content == "!update" {
+            let _ = msg.channel_id.say(&ctx.http, "🔄 Updating Neywa...").await;
+
+            match self_update().await {
+                Ok(()) => {
+                    let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Restarting...").await;
+
+                    // Give Discord a moment to send the message
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                    // Spawn new daemon process (it will kill this one)
+                    let _ = std::process::Command::new("neywa")
+                        .arg("daemon")
+                        .spawn();
+
+                    // Exit current process
+                    std::process::exit(0);
+                }
+                Err(e) => {
+                    let _ = msg.channel_id.say(&ctx.http, format!("❌ Update failed: {}", e)).await;
+                }
+            }
+            return;
+        }
+
         // Skip if empty content and no attachments
         if content.is_empty() && attachment_paths.is_empty() {
             return;
@@ -766,6 +792,58 @@ pub async fn run_bot() -> Result<()> {
     }
 
     client.start().await.context("Discord client error")?;
+
+    Ok(())
+}
+
+/// Self-update neywa binary from neywa.pages.dev
+async fn self_update() -> Result<()> {
+    // Detect architecture
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else {
+        anyhow::bail!("Unsupported architecture");
+    };
+
+    let download_url = format!("https://neywa.pages.dev/neywa-{}", arch);
+    tracing::info!("Downloading from: {}", download_url);
+
+    // Download new binary
+    let response = reqwest::get(&download_url).await?;
+
+    if !response.status().is_success() {
+        anyhow::bail!("Failed to download: HTTP {}", response.status());
+    }
+
+    let bytes = response.bytes().await?;
+
+    // Find current binary path
+    let current_exe = std::env::current_exe()
+        .context("Failed to get current executable path")?;
+
+    tracing::info!("Updating binary at: {:?}", current_exe);
+
+    // Write to temp file first
+    let temp_path = current_exe.with_extension("new");
+    std::fs::write(&temp_path, &bytes)
+        .context("Failed to write new binary")?;
+
+    // Make executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&temp_path)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&temp_path, perms)?;
+    }
+
+    // Replace current binary
+    std::fs::rename(&temp_path, &current_exe)
+        .context("Failed to replace binary")?;
+
+    tracing::info!("Binary updated successfully");
 
     Ok(())
 }

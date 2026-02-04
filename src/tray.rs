@@ -43,16 +43,16 @@ pub fn run_tray(status_rx: mpsc::Receiver<TrayCommand>, quit_tx: mpsc::Sender<()
     let separator1 = PredefinedMenuItem::separator();
 
     // Status section
-    let status_label = MenuItem::new("상태", false, None);
-    let status_item = MenuItem::new("   🟢 Discord 연결됨", false, None);
+    let status_label = MenuItem::new("Status", false, None);
+    let status_item = MenuItem::new("   🟢 Connected to Discord", false, None);
     let separator2 = PredefinedMenuItem::separator();
 
     // Actions
-    let open_discord = MenuItem::new("Discord 열기", true, None);
+    let open_discord = MenuItem::new("Open Discord", true, None);
     let separator3 = PredefinedMenuItem::separator();
 
     // Quit
-    let quit_item = MenuItem::new("Neywa 종료", true, None);
+    let quit_item = MenuItem::new("Quit Neywa", true, None);
 
     // Build menu
     menu.append(&app_name).unwrap();

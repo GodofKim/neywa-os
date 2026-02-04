@@ -1587,6 +1587,7 @@ dependencies = [
  "serenity",
  "tao",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "tray-icon",

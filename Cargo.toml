@@ -30,6 +30,7 @@ which = "6"
 
 # Async utilities
 async-trait = "0.1"
+tokio-util = "0.7"
 
 # HTTP client for downloading attachments
 reqwest = { version = "0.11", features = ["rustls-tls"], default-features = false }

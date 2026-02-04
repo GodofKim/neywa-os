@@ -110,7 +110,7 @@ pub async fn install() -> Result<()> {
     println!("  #general  → General AI assistant");
     println!("  #code     → Coding with file system access");
     println!("  #research → Web search and research");
-    println!("  #tasks    → Schedule tasks (e.g., '매일 8시에 뉴스 알려줘')");
+    println!("  #tasks    → Schedule tasks (e.g., 'remind me every day at 8am')");
     println!("  #logs     → Auto-logged activity");
 
     Ok(())

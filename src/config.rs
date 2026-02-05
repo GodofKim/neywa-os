@@ -113,6 +113,17 @@ pub async fn install() -> Result<()> {
     println!("  #tasks    → Schedule tasks (e.g., 'remind me every day at 8am')");
     println!("  #logs     → Auto-logged activity");
 
+    // Full Disk Access warning
+    println!("\n╔══════════════════════════════════════════════════════════════╗");
+    println!("║  ⚠️  IMPORTANT: Grant Full Disk Access to avoid permission    ║");
+    println!("║     popups when Neywa accesses files and folders.            ║");
+    println!("║                                                              ║");
+    println!("║  System Settings → Privacy & Security → Full Disk Access    ║");
+    println!("║  Add these binaries:                                         ║");
+    println!("║    • neywa  (usually ~/.local/bin/neywa)                     ║");
+    println!("║    • claude (usually ~/.local/bin/claude)                    ║");
+    println!("╚══════════════════════════════════════════════════════════════╝");
+
     Ok(())
 }
 

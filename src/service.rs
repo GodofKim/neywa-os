@@ -43,8 +43,6 @@ fn generate_plist(exe: &PathBuf) -> String {
     <string>/tmp/neywa.log</string>
     <key>StandardErrorPath</key>
     <string>/tmp/neywa.log</string>
-    <key>ProcessType</key>
-    <string>Background</string>
 </dict>
 </plist>
 "#,

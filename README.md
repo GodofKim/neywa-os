@@ -35,8 +35,12 @@ All through Discord DMs or channels.
 - **Multi-user Support** - Claude knows who's talking in group channels
 - **Message Queue** - Messages sent while processing are queued automatically
 - **Instant Stop** - Cancel processing with `!stop`
-- **Session Persistence** - Continue conversations across restarts
-- **Menu Bar App** - macOS tray icon shows status
+- **Session Persistence** - Continue conversations across restarts (saved to disk)
+- **Menu Bar App** - macOS tray icon shows status and version
+- **Auto Update** - Update via Discord with `!update` command
+- **Auto Start** - Launch on login with `neywa service install`
+- **Sleep Prevention** - System stays awake for remote access (display can turn off)
+- **Z Mode** - Toggle between Claude (Anthropic API) and Claude-Z (z.ai API)
 
 ## Installation
 
@@ -50,7 +54,7 @@ curl -fsSL https://neywa.ai/install.sh | bash
 
 ```bash
 git clone https://github.com/GodofKim/neywa-os.git
-cd neywa
+cd neywa-os
 cargo build --release
 ```
 
@@ -62,7 +66,7 @@ cargo build --release
    - Go to [Discord Developer Portal](https://discord.com/developers/applications)
    - Create new application → Bot → Copy token
    - Enable: Message Content Intent, Server Members Intent, Presence Intent
-   - Invite bot to your server with Send Messages, Read Message History permissions
+   - Invite bot to your server with Send Messages, Read Message History, Attach Files permissions
 
 3. **Configure Neywa**:
    ```bash
@@ -74,15 +78,46 @@ cargo build --release
    neywa daemon
    ```
 
+5. **Enable auto-start (optional)**:
+   ```bash
+   neywa service install
+   ```
+
 ## Commands
+
+### Discord Commands
 
 | Command | Description |
 |---------|-------------|
 | `!help` | Show available commands |
 | `!status` | Check session status and queue |
-| `!new` | Start a new conversation |
+| `!new` / `!reset` | Start a new conversation |
 | `!stop` | Stop current processing and clear queue |
 | `!queue` | Show queued messages |
+| `!update` | Update Neywa to the latest version |
+| `!z` | Toggle Z mode (claude-z / claude) |
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `neywa install` | Configure Discord bot token |
+| `neywa daemon` | Start the bot (foreground) |
+| `neywa service install` | Enable auto-start on login |
+| `neywa service uninstall` | Disable auto-start |
+| `neywa service status` | Check service status |
+
+## Remote Access
+
+Neywa is perfect for remote access to your computer:
+
+1. **Install as service**: `neywa service install`
+2. **Leave your Mac open** (lid open, can lock screen)
+3. **Access from anywhere** via Discord
+
+The service mode automatically prevents system sleep while allowing the display to turn off. Your Mac stays awake and responsive to Discord messages.
+
+> **Note**: Closing the MacBook lid will still trigger sleep. Keep the lid open for remote access.
 
 ## How It Works
 
@@ -95,15 +130,17 @@ Neywa acts as a bridge between Discord and Claude Code. When you send a message:
 1. Neywa receives it via Discord API
 2. Forwards to Claude Code CLI with your context
 3. Streams the response back to Discord in real-time
+4. Shows tool usage (Read, Write, Bash, Task, Skill, etc.) as status updates
 
 ## Project Structure
 
 ```
-neywa/
+neywa-os/
 ├── src/
 │   ├── main.rs       # CLI entry point
 │   ├── discord.rs    # Discord bot handler
 │   ├── claude.rs     # Claude Code CLI wrapper
+│   ├── service.rs    # LaunchAgent management
 │   └── tray.rs       # macOS menu bar icon
 ├── dist/pages/       # Website & binaries
 └── Cargo.toml
@@ -142,6 +179,8 @@ Config file: `~/.config/neywa/config.json`
   "discord_token": "your-bot-token"
 }
 ```
+
+Sessions file: `~/.config/neywa/sessions.json` (auto-generated)
 
 ## Development
 

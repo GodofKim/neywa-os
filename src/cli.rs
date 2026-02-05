@@ -25,4 +25,22 @@ pub enum Command {
 
     /// Show current configuration
     Config,
+
+    /// Manage auto-start service (LaunchAgent)
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ServiceAction {
+    /// Install and enable auto-start on login
+    Install,
+
+    /// Uninstall and disable auto-start
+    Uninstall,
+
+    /// Show service status
+    Status,
 }

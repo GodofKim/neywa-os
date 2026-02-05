@@ -2,11 +2,12 @@ mod cli;
 mod claude;
 mod config;
 mod discord;
+mod service;
 mod tray;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Command};
+use cli::{Cli, Command, ServiceAction};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -116,6 +117,17 @@ fn main() -> Result<()> {
         Command::Config => {
             config::show()?;
         }
+        Command::Service { action } => match action {
+            ServiceAction::Install => {
+                service::install()?;
+            }
+            ServiceAction::Uninstall => {
+                service::uninstall()?;
+            }
+            ServiceAction::Status => {
+                service::status()?;
+            }
+        },
     }
 
     Ok(())

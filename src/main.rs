@@ -133,10 +133,10 @@ fn run_daemon_with_tray() -> Result<()> {
     ctrlc::set_handler(move || {
         tracing::info!("Received Ctrl+C, shutting down...");
         let _ = ctrlc_quit_tx.send(());
-        // Force exit after a short delay if graceful shutdown fails
+        // Force exit after a short delay
         std::thread::spawn(|| {
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            tracing::warn!("Forcing exit...");
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            tracing::info!("Exiting...");
             remove_pid_file();
             std::process::exit(0);
         });
@@ -179,9 +179,8 @@ fn run_daemon_with_tray() -> Result<()> {
     // Run tray on main thread (required for macOS)
     tray::run_tray(status_rx, quit_tx);
 
-    // Wait for bot thread to finish
-    let _ = bot_handle.join();
-
-    tracing::info!("Neywa daemon stopped");
-    Ok(())
+    // Tray exited, force cleanup and exit
+    tracing::info!("Tray closed, cleaning up...");
+    remove_pid_file();
+    std::process::exit(0);
 }

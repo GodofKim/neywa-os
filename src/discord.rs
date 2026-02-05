@@ -512,22 +512,28 @@ impl EventHandler for Handler {
                     // Give Discord a moment to send the message
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-                    // Spawn new daemon process (detached)
+                    // Spawn new daemon process (fully detached via nohup)
                     let exe_path = std::env::current_exe().unwrap_or_else(|_| "neywa".into());
-                    match std::process::Command::new(&exe_path)
-                        .arg("daemon")
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
+                    let cmd = format!(
+                        "nohup \"{}\" daemon > /dev/null 2>&1 &",
+                        exe_path.display()
+                    );
+
+                    match std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(&cmd)
                         .spawn()
                     {
                         Ok(_) => {
-                            tracing::info!("Spawned new daemon, exiting...");
+                            tracing::info!("Spawned new daemon via nohup, exiting...");
                         }
                         Err(e) => {
                             tracing::error!("Failed to spawn new daemon: {}", e);
                         }
                     }
+
+                    // Give shell time to start the process
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
                     // Exit current process
                     std::process::exit(0);

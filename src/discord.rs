@@ -3,7 +3,8 @@ use crate::config::Config;
 use anyhow::{Context, Result};
 use regex::Regex;
 use serenity::async_trait;
-use serenity::builder::{CreateAttachment, CreateMessage, EditMessage};
+use serenity::builder::{CreateAttachment, CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage, CreateMessage, EditMessage};
+use serenity::model::application::Interaction;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::prelude::*;
@@ -600,6 +601,16 @@ impl EventHandler for Handler {
     async fn ready(&self, ctx: serenity::client::Context, ready: Ready) {
         tracing::info!("{} is connected!", ready.user.name);
 
+        // Register slash commands globally
+        let longtext_command = CreateCommand::new("longtext")
+            .description("Get a link to paste long text (over 2000 chars)");
+
+        if let Err(e) = serenity::model::application::Command::create_global_command(&ctx.http, longtext_command).await {
+            tracing::error!("Failed to create slash command: {}", e);
+        } else {
+            tracing::info!("Registered /longtext slash command");
+        }
+
         for guild in &ready.guilds {
             if let Ok(channels) = guild.id.channels(&ctx.http).await {
                 for (id, channel) in channels {
@@ -611,6 +622,30 @@ impl EventHandler for Handler {
                         }
                         break;
                     }
+                }
+            }
+        }
+    }
+
+    async fn interaction_create(&self, ctx: serenity::client::Context, interaction: Interaction) {
+        if let Interaction::Command(command) = interaction {
+            if command.data.name == "longtext" {
+                let response_msg = "📝 **Long Text Input**\n\n\
+                    Discord has a 2000 character limit.\n\
+                    Use this tool to send longer text:\n\n\
+                    👉 **https://copy-once.cc**\n\n\
+                    1. Paste your long text there\n\
+                    2. Copy the generated link\n\
+                    3. Paste the link here with your message";
+
+                let response = CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content(response_msg)
+                        .ephemeral(true)
+                );
+
+                if let Err(e) = command.create_response(&ctx.http, response).await {
+                    tracing::error!("Failed to respond to slash command: {}", e);
                 }
             }
         }

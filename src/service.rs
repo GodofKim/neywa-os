@@ -17,6 +17,7 @@ fn exe_path() -> Result<PathBuf> {
 
 /// Generate the plist content
 fn generate_plist(exe: &PathBuf) -> String {
+    // Use login shell to inherit user's PATH (nvm, etc.)
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -26,8 +27,10 @@ fn generate_plist(exe: &PathBuf) -> String {
     <string>com.neywa.daemon</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{}</string>
-        <string>daemon</string>
+        <string>/bin/zsh</string>
+        <string>-l</string>
+        <string>-c</string>
+        <string>{} daemon</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

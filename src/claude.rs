@@ -14,7 +14,7 @@ fn find_cli(name: &str) -> Option<PathBuf> {
 
     // Common installation paths
     let home = dirs::home_dir()?;
-    let candidates = [
+    let mut candidates = vec![
         home.join(".local/bin").join(name),
         home.join(".cargo/bin").join(name),
         home.join("bin").join(name),
@@ -22,6 +22,17 @@ fn find_cli(name: &str) -> Option<PathBuf> {
         PathBuf::from("/opt/homebrew/bin").join(name),
         home.join(".npm-global/bin").join(name),
     ];
+
+    // Add nvm paths (LaunchAgent doesn't inherit shell PATH)
+    let nvm_dir = home.join(".nvm/versions/node");
+    if nvm_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
+            for entry in entries.flatten() {
+                let bin_path = entry.path().join("bin").join(name);
+                candidates.push(bin_path);
+            }
+        }
+    }
 
     for path in candidates {
         if path.exists() && path.is_file() {

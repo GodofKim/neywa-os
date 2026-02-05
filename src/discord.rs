@@ -513,19 +513,22 @@ impl EventHandler for Handler {
                     let is_service = plist_path.exists();
 
                     if is_service {
-                        let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Reinstalling service...").await;
+                        let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Restarting...").await;
                         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-                        // Reinstall service to update plist and restart
+                        // Spawn a detached shell script to reinstall service after we exit
                         let exe_path = std::env::current_exe().unwrap_or_else(|_| "neywa".into());
-                        let _ = std::process::Command::new(&exe_path)
-                            .args(["service", "uninstall"])
-                            .output();
-                        let _ = std::process::Command::new(&exe_path)
-                            .args(["service", "install"])
-                            .output();
+                        let script = format!(
+                            "sleep 1; \"{}\" service uninstall; \"{}\" service install",
+                            exe_path.display(),
+                            exe_path.display()
+                        );
+                        let _ = std::process::Command::new("sh")
+                            .arg("-c")
+                            .arg(&format!("nohup sh -c '{}' > /dev/null 2>&1 &", script))
+                            .spawn();
 
-                        // Exit - new service instance is already running
+                        // Exit - background script will reinstall service
                         std::process::exit(0);
                     } else {
                         let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Restarting...").await;

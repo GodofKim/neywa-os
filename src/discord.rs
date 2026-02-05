@@ -512,10 +512,22 @@ impl EventHandler for Handler {
                     // Give Discord a moment to send the message
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-                    // Spawn new daemon process (it will kill this one)
-                    let _ = std::process::Command::new("neywa")
+                    // Spawn new daemon process (detached)
+                    let exe_path = std::env::current_exe().unwrap_or_else(|_| "neywa".into());
+                    match std::process::Command::new(&exe_path)
                         .arg("daemon")
-                        .spawn();
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn()
+                    {
+                        Ok(_) => {
+                            tracing::info!("Spawned new daemon, exiting...");
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to spawn new daemon: {}", e);
+                        }
+                    }
 
                     // Exit current process
                     std::process::exit(0);

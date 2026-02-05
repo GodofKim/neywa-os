@@ -507,36 +507,43 @@ impl EventHandler for Handler {
 
             match self_update().await {
                 Ok(()) => {
-                    let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Restarting...").await;
+                    // Check if running under LaunchAgent
+                    let home = dirs::home_dir().unwrap_or_default();
+                    let plist_path = home.join("Library/LaunchAgents/com.neywa.daemon.plist");
+                    let is_service = plist_path.exists();
 
-                    // Give Discord a moment to send the message
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    if is_service {
+                        let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Restarting via LaunchAgent...").await;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        // Just exit - LaunchAgent will restart with new binary
+                        std::process::exit(0);
+                    } else {
+                        let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Restarting...").await;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-                    // Spawn new daemon process (fully detached via nohup)
-                    let exe_path = std::env::current_exe().unwrap_or_else(|_| "neywa".into());
-                    let cmd = format!(
-                        "nohup \"{}\" daemon > /dev/null 2>&1 &",
-                        exe_path.display()
-                    );
+                        // Spawn new daemon process (fully detached via nohup)
+                        let exe_path = std::env::current_exe().unwrap_or_else(|_| "neywa".into());
+                        let cmd = format!(
+                            "nohup \"{}\" daemon > /dev/null 2>&1 &",
+                            exe_path.display()
+                        );
 
-                    match std::process::Command::new("sh")
-                        .arg("-c")
-                        .arg(&cmd)
-                        .spawn()
-                    {
-                        Ok(_) => {
-                            tracing::info!("Spawned new daemon via nohup, exiting...");
+                        match std::process::Command::new("sh")
+                            .arg("-c")
+                            .arg(&cmd)
+                            .spawn()
+                        {
+                            Ok(_) => {
+                                tracing::info!("Spawned new daemon via nohup, exiting...");
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to spawn new daemon: {}", e);
+                            }
                         }
-                        Err(e) => {
-                            tracing::error!("Failed to spawn new daemon: {}", e);
-                        }
+
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        std::process::exit(0);
                     }
-
-                    // Give shell time to start the process
-                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-                    // Exit current process
-                    std::process::exit(0);
                 }
                 Err(e) => {
                     let _ = msg.channel_id.say(&ctx.http, format!("❌ Update failed: {}", e)).await;

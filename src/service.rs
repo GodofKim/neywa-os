@@ -35,10 +35,7 @@ fn generate_plist(exe: &PathBuf) -> String {
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
+    <true/>
     <key>StandardOutPath</key>
     <string>/tmp/neywa.log</string>
     <key>StandardErrorPath</key>

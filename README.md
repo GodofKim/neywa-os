@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://neywa.pages.dev">Website</a> •
+  <a href="https://neywa.ai">Website</a> •
   <a href="#installation">Installation</a> •
   <a href="#features">Features</a> •
   <a href="#commands">Commands</a> •
@@ -43,7 +43,7 @@ All through Discord DMs or channels.
 ### Quick Install (macOS)
 
 ```bash
-curl -fsSL https://neywa.pages.dev/install.sh | bash
+curl -fsSL https://neywa.ai/install.sh | bash
 ```
 
 ### Manual Build

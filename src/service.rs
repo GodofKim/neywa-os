@@ -18,6 +18,7 @@ fn exe_path() -> Result<PathBuf> {
 /// Generate the plist content
 fn generate_plist(exe: &PathBuf) -> String {
     // Use login shell to inherit user's PATH (nvm, etc.)
+    // caffeinate -s prevents system sleep while Neywa is running (allows display sleep)
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -30,7 +31,7 @@ fn generate_plist(exe: &PathBuf) -> String {
         <string>/bin/zsh</string>
         <string>-l</string>
         <string>-c</string>
-        <string>{} daemon</string>
+        <string>caffeinate -s {} daemon</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -81,6 +82,7 @@ pub fn install() -> Result<()> {
     if output.status.success() {
         println!("Service enabled and started");
         println!("\nNeywa will now start automatically on login.");
+        println!("Sleep prevention: ENABLED (display may turn off, but system stays awake)");
         println!("Logs: /tmp/neywa.log");
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);

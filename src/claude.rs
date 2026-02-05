@@ -5,6 +5,40 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
+/// Neywa system prompt - injected into all Claude Code calls
+const NEYWA_SYSTEM_PROMPT: &str = r#"
+## Neywa System Guidelines
+
+You are running through Neywa, a Discord-based AI assistant interface.
+
+### Long-Running Processes
+
+When starting servers, daemons, or any process that should persist after this conversation ends, you MUST properly detach the process:
+
+```bash
+# Method 1: nohup + disown (recommended)
+nohup command > /path/to/log 2>&1 & disown
+
+# Method 2: screen
+screen -dmS session_name command
+
+# Method 3: tmux
+tmux new-session -d -s session_name 'command'
+
+# Method 4: pm2 (for Node.js)
+pm2 start app.js --name myapp
+```
+
+IMPORTANT: Never start a server or daemon with just `command &` - it will be killed when this session ends.
+After starting a persistent process, verify it's running with `ps aux | grep process_name` or `curl localhost:port`.
+
+### Response Style
+
+- Keep responses concise - this is a chat interface
+- Use code blocks for commands and code
+- When showing file changes, prefer diffs or key snippets over full files
+"#;
+
 /// Find CLI binary in common locations
 fn find_cli(name: &str) -> Option<PathBuf> {
     // First try which
@@ -54,6 +88,7 @@ fn base_command(use_z: bool) -> Command {
 
     let mut cmd = Command::new(&cmd_path);
     cmd.arg("--dangerously-skip-permissions");
+    cmd.arg("--append-system-prompt").arg(NEYWA_SYSTEM_PROMPT);
     cmd
 }
 
@@ -119,7 +154,93 @@ fn format_tool_input(tool_name: &str, input: &serde_json::Value) -> String {
                 .map(|u| format!("📥 {}", u))
                 .unwrap_or_default()
         }
-        _ => String::new()
+        // Advanced tools
+        "Task" => {
+            let agent_type = input.get("subagent_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("agent");
+            let description = input.get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("🤖 [{}] {}", agent_type, description)
+        }
+        "Skill" => {
+            let skill = input.get("skill")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            format!("⚡ /{}", skill)
+        }
+        "NotebookEdit" => {
+            input.get("notebook_path")
+                .and_then(|v| v.as_str())
+                .map(|p| format!("📓 {}", shorten_path(p)))
+                .unwrap_or_default()
+        }
+        "AskUserQuestion" => {
+            "❓ Asking user...".to_string()
+        }
+        "TaskCreate" => {
+            input.get("subject")
+                .and_then(|v| v.as_str())
+                .map(|s| format!("📝 New: {}", truncate_str(s, 40)))
+                .unwrap_or_else(|| "📝 Creating task".to_string())
+        }
+        "TaskUpdate" => {
+            let task_id = input.get("taskId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let status = input.get("status")
+                .and_then(|v| v.as_str())
+                .map(|s| format!(" → {}", s))
+                .unwrap_or_default();
+            format!("📋 Task #{}{}", task_id, status)
+        }
+        "TaskList" => {
+            "📋 Listing tasks".to_string()
+        }
+        "TaskGet" => {
+            input.get("taskId")
+                .and_then(|v| v.as_str())
+                .map(|id| format!("📋 Get task #{}", id))
+                .unwrap_or_else(|| "📋 Getting task".to_string())
+        }
+        "EnterPlanMode" => {
+            "📐 Entering plan mode".to_string()
+        }
+        "ExitPlanMode" => {
+            "📐 Exiting plan mode".to_string()
+        }
+        "TaskOutput" => {
+            input.get("task_id")
+                .and_then(|v| v.as_str())
+                .map(|id| format!("📤 Reading output: {}", id))
+                .unwrap_or_else(|| "📤 Reading task output".to_string())
+        }
+        "TaskStop" => {
+            "🛑 Stopping task".to_string()
+        }
+        _ => {
+            // Handle MCP tools (mcp__server__tool format)
+            if tool_name.starts_with("mcp__") {
+                let parts: Vec<&str> = tool_name.split("__").collect();
+                if parts.len() >= 3 {
+                    let server = parts[1];
+                    let tool = parts[2];
+                    return format!("🔌 {}:{}", server, tool);
+                }
+            }
+            String::new()
+        }
+    }
+}
+
+/// Truncate string for display
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.chars().count() <= max_len {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_len - 3).collect();
+        format!("{}...", truncated)
     }
 }
 

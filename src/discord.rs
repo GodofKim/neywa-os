@@ -14,6 +14,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
+/// Current version from Cargo.toml
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Channel types based on name
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChannelType {
@@ -83,6 +86,74 @@ type SessionKey = (u64, u64);
 struct SessionStorage;
 impl TypeMapKey for SessionStorage {
     type Value = Arc<RwLock<HashMap<SessionKey, String>>>;
+}
+
+/// Path for storing sessions
+fn sessions_file_path() -> std::path::PathBuf {
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("neywa");
+    config_dir.join("sessions.json")
+}
+
+/// Load sessions from file
+fn load_sessions() -> HashMap<SessionKey, String> {
+    let path = sessions_file_path();
+    if !path.exists() {
+        return HashMap::new();
+    }
+
+    match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            // Parse as array of [key1, key2, value] arrays
+            let parsed: Result<Vec<(u64, u64, String)>, _> = serde_json::from_str(&content);
+            match parsed {
+                Ok(entries) => {
+                    let mut map = HashMap::new();
+                    for (k1, k2, v) in entries {
+                        map.insert((k1, k2), v);
+                    }
+                    tracing::info!("Loaded {} sessions from file", map.len());
+                    map
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to parse sessions file: {}", e);
+                    HashMap::new()
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to read sessions file: {}", e);
+            HashMap::new()
+        }
+    }
+}
+
+/// Save sessions to file
+fn save_sessions(sessions: &HashMap<SessionKey, String>) {
+    let path = sessions_file_path();
+
+    // Ensure directory exists
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    // Convert to serializable format: array of [key1, key2, value]
+    let entries: Vec<(u64, u64, &String)> = sessions
+        .iter()
+        .map(|((k1, k2), v)| (*k1, *k2, v))
+        .collect();
+
+    match serde_json::to_string_pretty(&entries) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                tracing::warn!("Failed to save sessions: {}", e);
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to serialize sessions: {}", e);
+        }
+    }
 }
 
 struct LogsChannel;
@@ -249,11 +320,14 @@ impl Handler {
             return;
         }
 
-        // Save session ID
+        // Save session ID (memory + file)
         if let Some(sid) = new_session_id {
             let data = ctx.data.read().await;
             if let Some(sessions) = data.get::<SessionStorage>() {
-                sessions.write().await.insert(session_key, sid);
+                let mut sessions_map = sessions.write().await;
+                sessions_map.insert(session_key, sid);
+                // Persist to file
+                save_sessions(&sessions_map);
             }
         }
 
@@ -416,7 +490,9 @@ impl EventHandler for Handler {
         if content == "!reset" || content == "!새대화" {
             let data = ctx.data.read().await;
             if let Some(sessions) = data.get::<SessionStorage>() {
-                sessions.write().await.remove(&session_key);
+                let mut sessions_map = sessions.write().await;
+                sessions_map.remove(&session_key);
+                save_sessions(&sessions_map);
             }
             let _ = msg.channel_id.say(&ctx.http, "대화가 초기화되었습니다.").await;
             return;
@@ -436,7 +512,9 @@ impl EventHandler for Handler {
                 };
 
                 if let Some(sessions) = data.get::<SessionStorage>() {
-                    sessions.write().await.remove(&session_key);
+                    let mut sessions_map = sessions.write().await;
+                    sessions_map.remove(&session_key);
+                    save_sessions(&sessions_map);
                 }
 
                 let mode_msg = if is_z_mode {
@@ -503,10 +581,32 @@ impl EventHandler for Handler {
 
         // Handle update command
         if content == "!update" {
-            let _ = msg.channel_id.say(&ctx.http, "🔄 Updating Neywa...").await;
+            let _ = msg.channel_id.say(&ctx.http, "🔄 Checking for updates...").await;
+
+            // Fetch remote version
+            let remote_version = match fetch_remote_version().await {
+                Ok(v) => v,
+                Err(e) => {
+                    let _ = msg.channel_id.say(&ctx.http, format!("❌ Failed to check version: {}", e)).await;
+                    return;
+                }
+            };
+
+            // Compare versions
+            if remote_version == VERSION {
+                let _ = msg.channel_id.say(&ctx.http, format!("✅ Already on the latest version (v{})", VERSION)).await;
+                return;
+            }
+
+            let _ = msg.channel_id.say(&ctx.http, format!("📥 New version available: v{} → v{}", VERSION, remote_version)).await;
 
             match self_update().await {
                 Ok(()) => {
+                    // Save pending update info for notification after restart
+                    if let Err(e) = save_update_pending(msg.channel_id.get(), VERSION, &remote_version) {
+                        tracing::warn!("Failed to save update pending info: {}", e);
+                    }
+
                     // Check if running under LaunchAgent
                     let home = dirs::home_dir().unwrap_or_default();
                     let plist_path = home.join("Library/LaunchAgents/com.neywa.daemon.plist");
@@ -638,6 +738,26 @@ impl EventHandler for Handler {
 
     async fn ready(&self, ctx: serenity::client::Context, ready: Ready) {
         tracing::info!("{} is connected!", ready.user.name);
+
+        // Check for pending update notification
+        if let Some((channel_id, old_version, new_version)) = load_update_pending() {
+            tracing::info!("Found pending update notification: {} -> {}", old_version, new_version);
+            let channel = serenity::model::id::ChannelId::new(channel_id);
+
+            // Verify that update actually happened
+            if VERSION == new_version {
+                let msg = format!("🎉 **Update complete!**\nv{} → v{}", old_version, new_version);
+                if let Err(e) = channel.say(&ctx.http, &msg).await {
+                    tracing::error!("Failed to send update notification: {}", e);
+                }
+            } else {
+                // Version mismatch - update may have failed
+                let msg = format!("⚠️ Update may have failed. Current version: v{}, expected: v{}", VERSION, new_version);
+                if let Err(e) = channel.say(&ctx.http, &msg).await {
+                    tracing::error!("Failed to send update warning: {}", e);
+                }
+            }
+        }
 
         // Register slash commands globally
         let longtext_command = CreateCommand::new("longtext")
@@ -857,7 +977,9 @@ pub async fn run_bot() -> Result<()> {
 
     {
         let mut data = client.data.write().await;
-        data.insert::<SessionStorage>(Arc::new(RwLock::new(HashMap::new())));
+        // Load persisted sessions from file
+        let sessions = load_sessions();
+        data.insert::<SessionStorage>(Arc::new(RwLock::new(sessions)));
         data.insert::<LogsChannel>(Arc::new(RwLock::new(None)));
         data.insert::<ZModeChannels>(Arc::new(RwLock::new(std::collections::HashSet::new())));
         data.insert::<MessageQueue>(Arc::new(RwLock::new(HashMap::new())));
@@ -869,7 +991,63 @@ pub async fn run_bot() -> Result<()> {
     Ok(())
 }
 
-/// Self-update neywa binary from neywa.pages.dev
+/// Fetch remote version from neywa.ai/version.txt
+async fn fetch_remote_version() -> Result<String> {
+    let url = "https://neywa.ai/version.txt";
+    let response = reqwest::get(url).await?;
+
+    if !response.status().is_success() {
+        anyhow::bail!("Failed to fetch version: HTTP {}", response.status());
+    }
+
+    let version = response.text().await?.trim().to_string();
+    Ok(version)
+}
+
+/// Path for storing pending update info
+fn update_pending_path() -> std::path::PathBuf {
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("neywa");
+    config_dir.join("update_pending.json")
+}
+
+/// Save pending update info before restart
+fn save_update_pending(channel_id: u64, old_version: &str, new_version: &str) -> Result<()> {
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("neywa");
+    std::fs::create_dir_all(&config_dir)?;
+
+    let info = serde_json::json!({
+        "channel_id": channel_id,
+        "old_version": old_version,
+        "new_version": new_version
+    });
+
+    std::fs::write(update_pending_path(), serde_json::to_string(&info)?)?;
+    Ok(())
+}
+
+/// Load and delete pending update info
+fn load_update_pending() -> Option<(u64, String, String)> {
+    let path = update_pending_path();
+    if !path.exists() {
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path); // Delete after reading
+
+    let info: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let channel_id = info["channel_id"].as_u64()?;
+    let old_version = info["old_version"].as_str()?.to_string();
+    let new_version = info["new_version"].as_str()?.to_string();
+
+    Some((channel_id, old_version, new_version))
+}
+
+/// Self-update neywa binary from neywa.ai
 async fn self_update() -> Result<()> {
     // Detect architecture
     let arch = if cfg!(target_arch = "aarch64") {
@@ -880,7 +1058,7 @@ async fn self_update() -> Result<()> {
         anyhow::bail!("Unsupported architecture");
     };
 
-    let download_url = format!("https://neywa.pages.dev/neywa-{}", arch);
+    let download_url = format!("https://neywa.ai/neywa-{}", arch);
     tracing::info!("Downloading from: {}", download_url);
 
     // Download new binary

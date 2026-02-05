@@ -39,7 +39,7 @@ pub fn run_tray(status_rx: mpsc::Receiver<TrayCommand>, quit_tx: mpsc::Sender<()
 
     // App header (disabled, just for display)
     let app_name = MenuItem::new("🤖 Neywa", false, None);
-    let version = MenuItem::new("   v0.2.0", false, None);
+    let version = MenuItem::new(&format!("   v{}", env!("CARGO_PKG_VERSION")), false, None);
     let separator1 = PredefinedMenuItem::separator();
 
     // Status section

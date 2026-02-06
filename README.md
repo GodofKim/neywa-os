@@ -68,17 +68,21 @@ cargo build --release
    - Enable: Message Content Intent, Server Members Intent, Presence Intent
    - Invite bot to your server with Send Messages, Read Message History, Attach Files permissions
 
-3. **Configure Neywa**:
+3. **Get your Discord Server (Guild) ID**:
+   - Enable Developer Mode: Discord Settings > Advanced > Developer Mode
+   - Right-click your server icon > **Copy Server ID**
+
+4. **Configure Neywa**:
    ```bash
-   neywa install  # Enter your Discord bot token
+   neywa install  # Enter your bot token and server ID
    ```
 
-4. **Start the daemon**:
+5. **Start the daemon**:
    ```bash
    neywa daemon
    ```
 
-5. **Enable auto-start (optional)**:
+6. **Enable auto-start (optional)**:
    ```bash
    neywa service install
    ```
@@ -101,8 +105,11 @@ cargo build --release
 
 | Command | Description |
 |---------|-------------|
-| `neywa install` | Configure Discord bot token |
+| `neywa install` | Configure Discord bot token and server ID |
 | `neywa daemon` | Start the bot (foreground) |
+| `neywa discord channels` | List all channels in the server |
+| `neywa discord send <channel> <msg>` | Send a message to a channel (by name or ID) |
+| `neywa discord guild` | Show server info |
 | `neywa service install` | Enable auto-start on login |
 | `neywa service uninstall` | Disable auto-start |
 | `neywa service status` | Check service status |
@@ -140,6 +147,7 @@ neywa-os/
 │   ├── main.rs       # CLI entry point
 │   ├── discord.rs    # Discord bot handler
 │   ├── claude.rs     # Claude Code CLI wrapper
+│   ├── discord_api.rs # Discord REST API (channels, send, guild)
 │   ├── service.rs    # LaunchAgent management
 │   └── tray.rs       # macOS menu bar icon
 ├── dist/pages/       # Website & binaries
@@ -176,7 +184,9 @@ Config file: `~/.config/neywa/config.json`
 
 ```json
 {
-  "discord_token": "your-bot-token"
+  "discord_bot_token": "your-bot-token",
+  "discord_guild_id": 123456789012345678,
+  "allowed_user_ids": []
 }
 ```
 

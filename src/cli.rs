@@ -31,6 +31,12 @@ pub enum Command {
         #[command(subcommand)]
         action: ServiceAction,
     },
+
+    /// Discord server control commands
+    Discord {
+        #[command(subcommand)]
+        action: DiscordAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -43,4 +49,22 @@ pub enum ServiceAction {
 
     /// Show service status
     Status,
+}
+
+#[derive(Subcommand)]
+pub enum DiscordAction {
+    /// List channels in the configured server
+    Channels,
+
+    /// Send a message to a channel
+    Send {
+        /// Channel name (e.g., "general") or channel ID
+        channel: String,
+
+        /// Message to send
+        message: String,
+    },
+
+    /// Show server (guild) info
+    Guild,
 }

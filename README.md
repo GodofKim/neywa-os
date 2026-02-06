@@ -77,15 +77,15 @@ cargo build --release
    neywa install  # Enter your bot token and server ID
    ```
 
-5. **Start the daemon**:
-   ```bash
-   neywa daemon
-   ```
-
-6. **Enable auto-start (optional)**:
+5. **Start the service**:
    ```bash
    neywa service install
    ```
+
+6. **Grant Full Disk Access** (important!):
+   - System Settings > Privacy & Security > Full Disk Access
+   - Add: **Neywa.app** (from `/Applications`, auto-created by step 5)
+   - Without this, macOS will show permission popups constantly
 
 ## Commands
 
@@ -106,7 +106,6 @@ cargo build --release
 | Command | Description |
 |---------|-------------|
 | `neywa install` | Configure Discord bot token and server ID |
-| `neywa daemon` | Start the bot (foreground) |
 | `neywa discord channels` | List all channels in the server |
 | `neywa discord send <channel> <msg>` | Send a message to a channel (by name or ID) |
 | `neywa discord guild` | Show server info |

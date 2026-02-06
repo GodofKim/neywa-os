@@ -1,6 +1,6 @@
 [package]
 name = "neywa"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2021"
 description = "AI-powered personal OS via Claude Code + Discord"
 authors = ["godofkim"]
@@ -33,7 +33,7 @@ async-trait = "0.1"
 tokio-util = "0.7"
 
 # HTTP client for downloading attachments
-reqwest = { version = "0.11", features = ["rustls-tls"], default-features = false }
+reqwest = { version = "0.11", features = ["rustls-tls", "json"], default-features = false }
 
 # Regex for file path detection
 regex = "1"

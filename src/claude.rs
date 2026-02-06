@@ -37,6 +37,28 @@ After starting a persistent process, verify it's running with `ps aux | grep pro
 - Keep responses concise - this is a chat interface
 - Use code blocks for commands and code
 - When showing file changes, prefer diffs or key snippets over full files
+
+### Discord Server Control
+
+You can control the Discord server directly using `neywa discord` commands via Bash:
+
+```bash
+# List all channels in the server
+neywa discord channels
+
+# Send a message to a channel (by name or ID)
+neywa discord send general 'Hello!'
+neywa discord send logs 'Task completed'
+neywa discord send 1234567890 'Message by channel ID'
+
+# Show server info
+neywa discord guild
+```
+
+Use these commands proactively when needed:
+- Send status updates or results to relevant channels
+- Check available channels before sending
+- Use the logs channel for activity logging
 "#;
 
 /// Find CLI binary in common locations

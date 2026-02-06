@@ -2,12 +2,13 @@ mod cli;
 mod claude;
 mod config;
 mod discord;
+mod discord_api;
 mod service;
 mod tray;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Command, ServiceAction};
+use cli::{Cli, Command, DiscordAction, ServiceAction};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -128,6 +129,19 @@ fn main() -> Result<()> {
                 service::status()?;
             }
         },
+        Command::Discord { action } => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                match action {
+                    DiscordAction::Channels => discord_api::list_channels().await?,
+                    DiscordAction::Send { channel, message } => {
+                        discord_api::send_message(&channel, &message).await?
+                    }
+                    DiscordAction::Guild => discord_api::show_guild().await?,
+                }
+                Ok::<_, anyhow::Error>(())
+            })?;
+        }
     }
 
     Ok(())

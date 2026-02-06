@@ -74,15 +74,40 @@ pub async fn install() -> Result<()> {
         anyhow::bail!("Bot token is required");
     }
 
-    // 2. Invite bot to server
-    println!("\nStep 2: Invite bot to your server");
+    // 2. Discord Guild (Server) ID
+    println!("\nStep 2: Discord Server ID");
+    println!("  1. Enable Developer Mode in Discord (Settings > Advanced > Developer Mode)");
+    println!("  2. Right-click your server icon and select 'Copy Server ID'\n");
+
+    print!("Enter your Discord server (guild) ID: ");
+    std::io::Write::flush(&mut std::io::stdout())?;
+
+    let mut guild_id_str = String::new();
+    std::io::stdin().read_line(&mut guild_id_str)?;
+    let guild_id_str = guild_id_str.trim();
+
+    let guild_id: Option<u64> = if guild_id_str.is_empty() {
+        println!("  (skipped - you can set it later with 'neywa config')");
+        None
+    } else {
+        match guild_id_str.parse::<u64>() {
+            Ok(id) => Some(id),
+            Err(_) => {
+                println!("  Invalid ID, skipping...");
+                None
+            }
+        }
+    };
+
+    // 3. Invite bot to server
+    println!("\nStep 3: Invite bot to your server");
     println!("  1. Go to 'OAuth2' > 'URL Generator'");
     println!("  2. Select scopes: 'bot'");
     println!("  3. Select permissions: 'Send Messages', 'Read Message History', 'View Channels'");
     println!("  4. Copy the URL and open it to invite the bot\n");
 
-    // 3. Create recommended channels
-    println!("Step 3: Create channels in your Discord server");
+    // 4. Create recommended channels
+    println!("Step 4: Create channels in your Discord server");
     println!("  Recommended channel structure:");
     println!("    #general  - General conversation");
     println!("    #code     - Coding tasks");
@@ -98,7 +123,7 @@ pub async fn install() -> Result<()> {
     // Save config
     let config = Config {
         discord_bot_token: Some(token),
-        discord_guild_id: None,
+        discord_guild_id: guild_id,
         allowed_user_ids: vec![],
     };
     config.save()?;

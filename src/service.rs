@@ -6,8 +6,44 @@ const PLIST_NAME: &str = "com.neywa.daemon.plist";
 const APP_BUNDLE_PATH: &str = "/Applications/Neywa.app";
 const BUNDLE_ID: &str = "com.neywa.daemon";
 
+/// FDA settings URL for macOS Ventura+ and fallback
+const FDA_URL_NEW: &str = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles";
+const FDA_URL_OLD: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
+
 /// App icon embedded at compile time
 const APP_ICON: &[u8] = include_bytes!("../assets/AppIcon.icns");
+
+/// Open System Settings > Full Disk Access page
+fn open_fda_settings() {
+    // Try new URL scheme first (macOS Ventura+), fall back to old
+    let _ = Command::new("open").arg(FDA_URL_NEW).output()
+        .or_else(|_| Command::new("open").arg(FDA_URL_OLD).output());
+}
+
+/// Guide user through granting Full Disk Access
+fn guide_fda_setup() {
+    println!();
+    println!("╔═══════════════════════════════════════════════════════════╗");
+    println!("║              Full Disk Access Setup                      ║");
+    println!("╠═══════════════════════════════════════════════════════════╣");
+    println!("║                                                           ║");
+    println!("║  Without this, macOS will repeatedly show permission      ║");
+    println!("║  popups like \"node wants to access your files\".           ║");
+    println!("║                                                           ║");
+    println!("║  Opening System Settings > Full Disk Access now...        ║");
+    println!("║                                                           ║");
+    println!("║  Just add Neywa.app:                                      ║");
+    println!("║    Click [+] > /Applications > Neywa.app > Open           ║");
+    println!("║                                                           ║");
+    println!("║  That's it! All child processes (node, claude, etc.)      ║");
+    println!("║  will inherit Neywa.app's Full Disk Access.               ║");
+    println!("║                                                           ║");
+    println!("╚═══════════════════════════════════════════════════════════╝");
+    println!();
+
+    // Open FDA settings page
+    open_fda_settings();
+}
 
 /// Get the LaunchAgent plist path
 fn plist_path() -> Result<PathBuf> {
@@ -87,10 +123,66 @@ fn create_app_bundle(source_exe: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Generate the plist content - uses the .app bundle binary
+/// Detect PATH directories that should be available to the daemon
+fn detect_path() -> String {
+    let mut paths: Vec<String> = vec![
+        "/usr/local/bin".to_string(),
+        "/usr/bin".to_string(),
+        "/bin".to_string(),
+        "/usr/sbin".to_string(),
+        "/sbin".to_string(),
+    ];
+
+    // Homebrew (Apple Silicon and Intel)
+    for p in &["/opt/homebrew/bin", "/opt/homebrew/sbin"] {
+        if PathBuf::from(p).exists() && !paths.contains(&p.to_string()) {
+            paths.insert(0, p.to_string());
+        }
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        // User-local paths
+        for p in &[home.join(".local/bin"), home.join(".cargo/bin")] {
+            if p.exists() {
+                let s = p.display().to_string();
+                if !paths.contains(&s) {
+                    paths.insert(0, s);
+                }
+            }
+        }
+
+        // nvm node path
+        let nvm_dir = home.join(".nvm/versions/node");
+        if nvm_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
+                let mut versions: Vec<PathBuf> = entries
+                    .flatten()
+                    .map(|e| e.path().join("bin"))
+                    .filter(|p| p.exists())
+                    .collect();
+                versions.sort();
+                if let Some(latest) = versions.last() {
+                    let s = latest.display().to_string();
+                    if !paths.contains(&s) {
+                        paths.insert(0, s);
+                    }
+                }
+            }
+        }
+    }
+
+    paths.join(":")
+}
+
+/// Generate the plist content - launches neywa directly from .app bundle.
+/// This ensures Neywa.app is the "responsible process" for TCC/FDA,
+/// so child processes (like node) inherit Neywa.app's Full Disk Access.
 fn generate_plist(exe: &PathBuf) -> String {
-    // Use login shell to inherit user's PATH (nvm, etc.)
-    // caffeinate -s prevents system sleep while Neywa is running (allows display sleep)
+    let home = dirs::home_dir()
+        .map(|h| h.display().to_string())
+        .unwrap_or_else(|| "/Users/unknown".to_string());
+    let path = detect_path();
+
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -100,11 +192,16 @@ fn generate_plist(exe: &PathBuf) -> String {
     <string>com.neywa.daemon</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/zsh</string>
-        <string>-l</string>
-        <string>-c</string>
-        <string>caffeinate -s {} daemon</string>
+        <string>{}</string>
+        <string>daemon</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{}</string>
+        <key>HOME</key>
+        <string>{}</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -116,7 +213,7 @@ fn generate_plist(exe: &PathBuf) -> String {
 </dict>
 </plist>
 "#,
-        exe.display()
+        exe.display(), path, home
     )
 }
 
@@ -162,9 +259,9 @@ pub fn install() -> Result<()> {
         println!("\nNeywa will now start automatically on login.");
         println!("Sleep prevention: ENABLED (display may turn off, but system stays awake)");
         println!("Logs: /tmp/neywa.log");
-        println!("\nTo grant Full Disk Access (prevents permission popups):");
-        println!("  System Settings > Privacy & Security > Full Disk Access");
-        println!("  Add: Neywa.app (from /Applications)");
+
+        // Auto-guide FDA setup
+        guide_fda_setup();
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if stderr.contains("service already loaded") {

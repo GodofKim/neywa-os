@@ -67,4 +67,28 @@ pub enum DiscordAction {
 
     /// Show server (guild) info
     Guild,
+
+    /// Create a new channel in the server
+    Create {
+        /// Channel name (e.g., "dev-logs")
+        name: String,
+
+        /// Channel type: text, voice, category, announcement, forum
+        #[arg(short = 't', long, default_value = "text")]
+        channel_type: String,
+
+        /// Parent category name or ID (optional)
+        #[arg(short, long)]
+        category: Option<String>,
+
+        /// Channel topic/description (optional)
+        #[arg(long)]
+        topic: Option<String>,
+    },
+
+    /// Delete a channel from the server
+    Delete {
+        /// Channel name or ID to delete
+        channel: String,
+    },
 }

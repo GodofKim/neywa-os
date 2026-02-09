@@ -208,7 +208,7 @@ impl Handler {
         };
 
         // Send initial "processing" message
-        let status_msg = match msg.channel_id.say(&ctx.http, "⏳ 처리 중...").await {
+        let status_msg = match msg.channel_id.say(&ctx.http, "⏳ Processing...").await {
             Ok(m) => m,
             Err(e) => {
                 tracing::error!("Failed to send processing message: {}", e);
@@ -226,7 +226,7 @@ impl Handler {
         };
 
         let user_content = if content.is_empty() {
-            "이 파일을 분석해줘".to_string()
+            "Analyze this file".to_string()
         } else {
             content.to_string()
         };
@@ -235,7 +235,7 @@ impl Handler {
             format!("[{}]: {}{}", username, user_content, attachment_info)
         } else {
             format!(
-                "[System: {} 여러 사용자가 대화할 수 있습니다. 각 메시지 앞에 [사용자이름] 형태로 누가 말하는지 표시됩니다. 사용자를 이름으로 구분해서 응답하세요.]\n\n[{}]: {}{}",
+                "[System: {} Multiple users may participate. Each message is prefixed with [username]. Distinguish users by name in your responses.]\n\n[{}]: {}{}",
                 system_prompt, username, user_content, attachment_info
             )
         };
@@ -263,7 +263,7 @@ impl Handler {
         // Process stream events with cancellation support
         let mut final_text = String::new();
         let mut new_session_id: Option<String> = None;
-        let mut status_lines: Vec<String> = vec!["⏳ 처리 중...".to_string()];
+        let mut status_lines: Vec<String> = vec!["⏳ Processing...".to_string()];
         let mut last_update = Instant::now();
         let update_interval = Duration::from_millis(800);
         let mut was_cancelled = false;
@@ -316,7 +316,7 @@ impl Handler {
         let _ = status_msg.delete(&ctx.http).await;
 
         if was_cancelled {
-            let _ = msg.channel_id.say(&ctx.http, "🛑 중단되었습니다.").await;
+            let _ = msg.channel_id.say(&ctx.http, "🛑 Cancelled.").await;
             return;
         }
 
@@ -333,7 +333,7 @@ impl Handler {
 
         // Send final response
         if final_text.is_empty() {
-            final_text = "(응답 없음)".to_string();
+            final_text = "(No response)".to_string();
         }
 
         // Detect file paths in response and send as attachments
@@ -362,9 +362,9 @@ impl Handler {
 
         // Send completion notification
         let completion_msg = if sent_files.is_empty() {
-            format!("{} ✅ 완료!", user_mention)
+            format!("{} ✅ Done!", user_mention)
         } else {
-            format!("{} ✅ 완료! ({}개 파일 첨부)", user_mention, sent_files.len())
+            format!("{} ✅ Done! ({} file(s) attached)", user_mention, sent_files.len())
         };
         let _ = msg.channel_id.say(&ctx.http, completion_msg).await;
 
@@ -461,9 +461,9 @@ impl EventHandler for Handler {
             if let Some(processing) = data.get::<ProcessingChannels>() {
                 if let Some(token) = processing.read().await.get(&channel_id) {
                     token.cancel();
-                    let _ = msg.channel_id.say(&ctx.http, "🛑 중단 요청됨...").await;
+                    let _ = msg.channel_id.say(&ctx.http, "🛑 Stop requested...").await;
                 } else {
-                    let _ = msg.channel_id.say(&ctx.http, "현재 진행 중인 작업이 없습니다.").await;
+                    let _ = msg.channel_id.say(&ctx.http, "Nothing is being processed.").await;
                 }
             }
 
@@ -480,7 +480,7 @@ impl EventHandler for Handler {
                     }
                 };
                 if cleared > 0 {
-                    let _ = msg.channel_id.say(&ctx.http, format!("📭 대기 중인 메시지 {}개 취소됨", cleared)).await;
+                    let _ = msg.channel_id.say(&ctx.http, format!("📭 Cleared {} queued message(s)", cleared)).await;
                 }
             }
             return;
@@ -494,7 +494,7 @@ impl EventHandler for Handler {
                 sessions_map.remove(&session_key);
                 save_sessions(&sessions_map);
             }
-            let _ = msg.channel_id.say(&ctx.http, "대화가 초기화되었습니다.").await;
+            let _ = msg.channel_id.say(&ctx.http, "Session reset.").await;
             return;
         }
 
@@ -518,9 +518,9 @@ impl EventHandler for Handler {
                 }
 
                 let mode_msg = if is_z_mode {
-                    "⚡ **Z 모드 활성화** - 이 채널에서 `claude-z` (z.ai API) 사용"
+                    "⚡ **Z mode ON** - Using `claude-z` (z.ai API) in this channel"
                 } else {
-                    "🔄 **일반 모드** - 이 채널에서 `claude` (Anthropic API) 사용"
+                    "🔄 **Normal mode** - Using `claude` (Anthropic API) in this channel"
                 };
                 let _ = msg.channel_id.say(&ctx.http, mode_msg).await;
             }
@@ -546,9 +546,9 @@ impl EventHandler for Handler {
                 0
             };
 
-            let mode = if is_z_mode { "⚡ Z 모드 (claude-z)" } else { "🤖 일반 모드 (claude)" };
-            let processing_status = if is_processing { "🔄 처리 중" } else { "✅ 대기" };
-            let queue_status = if queue_size > 0 { format!("📬 대기열: {}개", queue_size) } else { "📭 대기열: 비어있음".to_string() };
+            let mode = if is_z_mode { "⚡ Z mode (claude-z)" } else { "🤖 Normal mode (claude)" };
+            let processing_status = if is_processing { "🔄 Processing" } else { "✅ Idle" };
+            let queue_status = if queue_size > 0 { format!("📬 Queue: {}", queue_size) } else { "📭 Queue: empty".to_string() };
 
             let _ = msg.channel_id.say(&ctx.http, format!("{}\n{}\n{}", mode, processing_status, queue_status)).await;
             return;
@@ -569,11 +569,11 @@ impl EventHandler for Handler {
             };
 
             let status = if is_processing {
-                format!("🔄 현재 처리 중 | 📬 대기열: {}개", queue_size)
+                format!("🔄 Processing | 📬 Queue: {}", queue_size)
             } else if queue_size > 0 {
-                format!("📬 대기열: {}개", queue_size)
+                format!("📬 Queue: {}", queue_size)
             } else {
-                "📭 대기열이 비어있습니다.".to_string()
+                "📭 Queue is empty.".to_string()
             };
             let _ = msg.channel_id.say(&ctx.http, status).await;
             return;
@@ -607,56 +607,12 @@ impl EventHandler for Handler {
                         tracing::warn!("Failed to save update pending info: {}", e);
                     }
 
-                    // Check if running under LaunchAgent
-                    let home = dirs::home_dir().unwrap_or_default();
-                    let plist_path = home.join("Library/LaunchAgents/com.neywa.daemon.plist");
-                    let is_service = plist_path.exists();
+                    let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Restarting...").await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-                    if is_service {
-                        let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Restarting...").await;
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-                        // Spawn a detached shell script to reinstall service after we exit
-                        let exe_path = std::env::current_exe().unwrap_or_else(|_| "neywa".into());
-                        let script = format!(
-                            "sleep 1; \"{}\" service uninstall; \"{}\" service install",
-                            exe_path.display(),
-                            exe_path.display()
-                        );
-                        let _ = std::process::Command::new("sh")
-                            .arg("-c")
-                            .arg(&format!("nohup sh -c '{}' > /dev/null 2>&1 &", script))
-                            .spawn();
-
-                        // Exit - background script will reinstall service
-                        std::process::exit(0);
-                    } else {
-                        let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Restarting...").await;
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-                        // Spawn new daemon process (fully detached via nohup)
-                        let exe_path = std::env::current_exe().unwrap_or_else(|_| "neywa".into());
-                        let cmd = format!(
-                            "nohup \"{}\" daemon > /dev/null 2>&1 &",
-                            exe_path.display()
-                        );
-
-                        match std::process::Command::new("sh")
-                            .arg("-c")
-                            .arg(&cmd)
-                            .spawn()
-                        {
-                            Ok(_) => {
-                                tracing::info!("Spawned new daemon via nohup, exiting...");
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to spawn new daemon: {}", e);
-                            }
-                        }
-
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        std::process::exit(0);
-                    }
+                    // Just exit - launchd KeepAlive will restart with the new binary.
+                    // No service reinstall needed, which preserves FDA permissions.
+                    std::process::exit(0);
                 }
                 Err(e) => {
                     let _ = msg.channel_id.say(&ctx.http, format!("❌ Update failed: {}", e)).await;
@@ -703,7 +659,7 @@ impl EventHandler for Handler {
                     0
                 }
             };
-            let _ = msg.channel_id.say(&ctx.http, format!("📬 대기열에 추가됨 ({}번째)", queue_pos)).await;
+            let _ = msg.channel_id.say(&ctx.http, format!("📬 Queued (#{} in line)", queue_pos)).await;
         } else {
             // Start processing immediately
             let cancel_token = CancellationToken::new();
@@ -760,14 +716,23 @@ impl EventHandler for Handler {
         }
 
         // Register slash commands globally
-        let longtext_command = CreateCommand::new("longtext")
-            .description("Get a link to paste long text (over 2000 chars)");
+        let command_defs: Vec<(&str, &str)> = vec![
+            ("help", "Show available commands"),
+            ("status", "Check session status, processing state, queue"),
+            ("new", "Start a new conversation session"),
+            ("stop", "Stop current processing and clear queue"),
+            ("queue", "Show queued messages"),
+            ("update", "Self-update to latest version"),
+            ("longtext", "Get a link to paste long text (over 2000 chars)"),
+        ];
 
-        if let Err(e) = serenity::model::application::Command::create_global_command(&ctx.http, longtext_command).await {
-            tracing::error!("Failed to create slash command: {}", e);
-        } else {
-            tracing::info!("Registered /longtext slash command");
+        for (name, desc) in &command_defs {
+            let cmd = CreateCommand::new(*name).description(*desc);
+            if let Err(e) = serenity::model::application::Command::create_global_command(&ctx.http, cmd).await {
+                tracing::error!("Failed to register /{}: {}", name, e);
+            }
         }
+        tracing::info!("Registered {} slash commands", command_defs.len());
 
         for guild in &ready.guilds {
             if let Ok(channels) = guild.id.channels(&ctx.http).await {
@@ -787,24 +752,164 @@ impl EventHandler for Handler {
 
     async fn interaction_create(&self, ctx: serenity::client::Context, interaction: Interaction) {
         if let Interaction::Command(command) = interaction {
-            if command.data.name == "longtext" {
-                let response_msg = "📝 **Long Text Input**\n\n\
+            let channel_id = command.channel_id.get();
+            let user_id = command.user.id.get();
+            let session_key = (user_id, channel_id);
+
+            let response_msg = match command.data.name.as_str() {
+                "help" => {
+                    format!(
+                        "**Neywa v{}** - AI Assistant\n\n\
+                        **Slash Commands:**\n\
+                        `/help` - Show this help\n\
+                        `/status` - Check session status\n\
+                        `/new` - Start a new conversation\n\
+                        `/stop` - Stop processing & clear queue\n\
+                        `/queue` - Show queued messages\n\
+                        `/update` - Update to latest version\n\
+                        `/longtext` - How to send long text\n\n\
+                        **Text Commands:**\n\
+                        `!z` - Toggle Z mode (claude-z)\n\n\
+                        Just type a message to chat with AI.",
+                        VERSION
+                    )
+                }
+                "status" => {
+                    let data = ctx.data.read().await;
+                    let is_z_mode = if let Some(z_channels) = data.get::<ZModeChannels>() {
+                        z_channels.read().await.contains(&channel_id)
+                    } else { false };
+                    let is_processing = if let Some(processing) = data.get::<ProcessingChannels>() {
+                        processing.read().await.contains_key(&channel_id)
+                    } else { false };
+                    let queue_size = if let Some(queue) = data.get::<MessageQueue>() {
+                        queue.read().await.get(&channel_id).map(|q| q.len()).unwrap_or(0)
+                    } else { 0 };
+
+                    let mode = if is_z_mode { "⚡ Z mode (claude-z)" } else { "🤖 Normal mode (claude)" };
+                    let proc = if is_processing { "🔄 Processing" } else { "✅ Idle" };
+                    let queue = if queue_size > 0 { format!("📬 Queue: {}", queue_size) } else { "📭 Queue: empty".to_string() };
+                    format!("**v{}**\n{}\n{}\n{}", VERSION, mode, proc, queue)
+                }
+                "new" => {
+                    let data = ctx.data.read().await;
+                    if let Some(sessions) = data.get::<SessionStorage>() {
+                        let mut sessions_map = sessions.write().await;
+                        sessions_map.remove(&session_key);
+                        save_sessions(&sessions_map);
+                    }
+                    "🔄 New session started.".to_string()
+                }
+                "stop" => {
+                    let data = ctx.data.read().await;
+                    let mut cancelled = false;
+                    let mut cleared = 0usize;
+
+                    if let Some(processing) = data.get::<ProcessingChannels>() {
+                        if let Some(token) = processing.read().await.get(&channel_id) {
+                            token.cancel();
+                            cancelled = true;
+                        }
+                    }
+                    if let Some(queue) = data.get::<MessageQueue>() {
+                        let mut q = queue.write().await;
+                        if let Some(channel_queue) = q.get_mut(&channel_id) {
+                            cleared = channel_queue.len();
+                            channel_queue.clear();
+                        }
+                    }
+
+                    let mut parts = Vec::new();
+                    if cancelled { parts.push("🛑 Processing stopped".to_string()); }
+                    if cleared > 0 { parts.push(format!("📭 {} queued message(s) cleared", cleared)); }
+                    if parts.is_empty() { parts.push("Nothing to stop.".to_string()); }
+                    parts.join("\n")
+                }
+                "queue" => {
+                    let data = ctx.data.read().await;
+                    let queue_size = if let Some(queue) = data.get::<MessageQueue>() {
+                        queue.read().await.get(&channel_id).map(|q| q.len()).unwrap_or(0)
+                    } else { 0 };
+                    let is_processing = if let Some(processing) = data.get::<ProcessingChannels>() {
+                        processing.read().await.contains_key(&channel_id)
+                    } else { false };
+
+                    if is_processing {
+                        format!("🔄 Processing | 📬 Queue: {}", queue_size)
+                    } else if queue_size > 0 {
+                        format!("📬 Queue: {}", queue_size)
+                    } else {
+                        "📭 Queue is empty.".to_string()
+                    }
+                }
+                "update" => {
+                    // Respond immediately, then handle update asynchronously
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("🔄 Checking for updates...")
+                    );
+                    let _ = command.create_response(&ctx.http, response).await;
+
+                    // Do the update in the channel as regular messages
+                    let channel = command.channel_id;
+                    let http = ctx.http.clone();
+                    let data = ctx.data.clone();
+
+                    tokio::spawn(async move {
+                        let remote_version = match fetch_remote_version().await {
+                            Ok(v) => v,
+                            Err(e) => {
+                                let _ = channel.say(&http, format!("❌ Failed to check version: {}", e)).await;
+                                return;
+                            }
+                        };
+
+                        if remote_version == VERSION {
+                            let _ = channel.say(&http, format!("✅ Already on the latest version (v{})", VERSION)).await;
+                            return;
+                        }
+
+                        let _ = channel.say(&http, format!("📥 v{} → v{}", VERSION, remote_version)).await;
+
+                        match self_update().await {
+                            Ok(()) => {
+                                if let Err(e) = save_update_pending(channel.get(), VERSION, &remote_version) {
+                                    tracing::warn!("Failed to save update pending: {}", e);
+                                }
+
+                                let _ = channel.say(&http, "✅ Update downloaded. Restarting...").await;
+                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                                // Just exit - launchd KeepAlive will restart with the new binary.
+                                std::process::exit(0);
+                            }
+                            Err(e) => {
+                                let _ = channel.say(&http, format!("❌ Update failed: {}", e)).await;
+                            }
+                        }
+                    });
+                    return; // Already responded
+                }
+                "longtext" => {
+                    "📝 **Long Text Input**\n\n\
                     Discord has a 2000 character limit.\n\
                     Use this tool to send longer text:\n\n\
                     👉 **https://copy-once.cc**\n\n\
                     1. Paste your long text there\n\
                     2. Copy the generated link\n\
-                    3. Paste the link here with your message";
-
-                let response = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::new()
-                        .content(response_msg)
-                        .ephemeral(true)
-                );
-
-                if let Err(e) = command.create_response(&ctx.http, response).await {
-                    tracing::error!("Failed to respond to slash command: {}", e);
+                    3. Paste the link here with your message".to_string()
                 }
+                _ => return,
+            };
+
+            let response = CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::new()
+                    .content(response_msg)
+                    .ephemeral(matches!(command.data.name.as_str(), "help" | "longtext"))
+            );
+
+            if let Err(e) = command.create_response(&ctx.http, response).await {
+                tracing::error!("Failed to respond to /{}: {}", command.data.name, e);
             }
         }
     }
@@ -909,7 +1014,7 @@ fn split_for_discord(text: &str) -> Vec<String> {
     }
 
     if chunks.is_empty() {
-        chunks.push("(응답 없음)".to_string());
+        chunks.push("(No response)".to_string());
     }
 
     chunks
@@ -1093,6 +1198,16 @@ async fn self_update() -> Result<()> {
     // Replace current binary
     std::fs::rename(&temp_path, &current_exe)
         .context("Failed to replace binary")?;
+
+    // Also update the .app bundle binary (preserves FDA permissions)
+    let app_binary = std::path::PathBuf::from("/Applications/Neywa.app/Contents/MacOS/neywa");
+    if app_binary.exists() {
+        if let Err(e) = std::fs::copy(&current_exe, &app_binary) {
+            tracing::warn!("Failed to update Neywa.app binary: {}", e);
+        } else {
+            tracing::info!("Updated Neywa.app binary");
+        }
+    }
 
     tracing::info!("Binary updated successfully");
 

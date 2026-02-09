@@ -53,11 +53,32 @@ neywa discord send 1234567890 'Message by channel ID'
 
 # Show server info
 neywa discord guild
+
+# Create a new text channel
+neywa discord create my-channel
+neywa discord create my-channel -t text
+
+# Create a voice channel
+neywa discord create voice-room -t voice
+
+# Create a channel under a category
+neywa discord create dev-logs -c 'Development'
+
+# Create a channel with topic
+neywa discord create announcements -t announcement --topic 'Important updates'
+
+# Create a category
+neywa discord create 'My Category' -t category
+
+# Delete a channel (by name or ID)
+neywa discord delete old-channel
+neywa discord delete 1234567890
 ```
 
 Use these commands proactively when needed:
 - Send status updates or results to relevant channels
 - Check available channels before sending
+- Create channels when organizing new projects or workflows
 - Use the logs channel for activity logging
 "#;
 

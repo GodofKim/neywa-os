@@ -89,6 +89,17 @@ fn main() -> Result<()> {
             // Write PID file
             write_pid_file()?;
 
+            // Spawn caffeinate to prevent system sleep (display may still sleep)
+            let _caffeinate = std::process::Command::new("/usr/bin/caffeinate")
+                .arg("-s")
+                .arg("-w")
+                .arg(std::process::id().to_string())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .ok();
+            tracing::info!("Sleep prevention: caffeinate started");
+
             // Run daemon
             let result = run_daemon_with_tray();
 
@@ -138,6 +149,17 @@ fn main() -> Result<()> {
                         discord_api::send_message(&channel, &message).await?
                     }
                     DiscordAction::Guild => discord_api::show_guild().await?,
+                    DiscordAction::Create { name, channel_type, category, topic } => {
+                        discord_api::create_channel(
+                            &name,
+                            &channel_type,
+                            category.as_deref(),
+                            topic.as_deref(),
+                        ).await?
+                    }
+                    DiscordAction::Delete { channel } => {
+                        discord_api::delete_channel(&channel).await?
+                    }
                 }
                 Ok::<_, anyhow::Error>(())
             })?;

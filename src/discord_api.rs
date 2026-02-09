@@ -181,6 +181,102 @@ pub async fn show_guild() -> Result<()> {
     Ok(())
 }
 
+/// Create a new channel in the guild
+pub async fn create_channel(
+    name: &str,
+    channel_type: &str,
+    category: Option<&str>,
+    topic: Option<&str>,
+) -> Result<()> {
+    let (token, guild_id) = load_token_and_guild()?;
+    let client = build_client(&token);
+
+    // Map type string to Discord channel type number
+    let type_num: u8 = match channel_type.to_lowercase().as_str() {
+        "text" => 0,
+        "voice" => 2,
+        "category" => 4,
+        "announcement" | "news" => 5,
+        "forum" => 15,
+        _ => anyhow::bail!(
+            "Unknown channel type '{}'. Use: text, voice, category, announcement, forum",
+            channel_type
+        ),
+    };
+
+    let mut body = serde_json::json!({
+        "name": name,
+        "type": type_num,
+    });
+
+    // Resolve parent category if provided
+    if let Some(cat) = category {
+        let parent_id = if cat.parse::<u64>().is_ok() {
+            cat.to_string()
+        } else {
+            // Find category by name
+            let url = format!("{}/guilds/{}/channels", DISCORD_API_BASE, guild_id);
+            let response = client.get(&url).send().await?;
+            let channels: Vec<Channel> = response.json().await?;
+            let lower_cat = cat.to_lowercase();
+            channels
+                .iter()
+                .find(|c| c.channel_type == 4 && c.name.as_ref().map(|n| n.to_lowercase() == lower_cat).unwrap_or(false))
+                .map(|c| c.id.clone())
+                .context(format!("Category '{}' not found", cat))?
+        };
+        body["parent_id"] = serde_json::Value::String(parent_id);
+    }
+
+    if let Some(t) = topic {
+        body["topic"] = serde_json::Value::String(t.to_string());
+    }
+
+    let url = format!("{}/guilds/{}/channels", DISCORD_API_BASE, guild_id);
+    let response = client.post(&url).json(&body).send().await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("Failed to create channel ({}): {}", status, body);
+    }
+
+    let created: Channel = response.json().await?;
+    println!(
+        "Channel created: #{} (ID: {}, type: {})",
+        created.name.as_deref().unwrap_or(name),
+        created.id,
+        created.type_name()
+    );
+    Ok(())
+}
+
+/// Delete a channel from the guild
+pub async fn delete_channel(channel: &str) -> Result<()> {
+    let (token, guild_id) = load_token_and_guild()?;
+    let client = build_client(&token);
+
+    // Resolve channel name to ID
+    let channel_id = if channel.parse::<u64>().is_ok() {
+        channel.to_string()
+    } else {
+        let name = channel.strip_prefix('#').unwrap_or(channel);
+        resolve_channel_by_name(&client, guild_id, name).await?
+    };
+
+    let url = format!("{}/channels/{}", DISCORD_API_BASE, channel_id);
+    let response = client.delete(&url).send().await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("Failed to delete channel ({}): {}", status, body);
+    }
+
+    println!("Channel deleted: {}", channel);
+    Ok(())
+}
+
 /// Resolve channel name to ID
 async fn resolve_channel_by_name(
     client: &reqwest::Client,

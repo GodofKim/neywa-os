@@ -66,7 +66,7 @@ cargo build --release
    - Go to [Discord Developer Portal](https://discord.com/developers/applications)
    - Create new application → Bot → Copy token
    - Enable: Message Content Intent, Server Members Intent, Presence Intent
-   - Invite bot to your server with Send Messages, Read Message History, Attach Files permissions
+   - Invite bot to your server with **Manage Channels**, Send Messages, Read Message History, Attach Files permissions
 
 3. **Get your Discord Server (Guild) ID**:
    - Enable Developer Mode: Discord Settings > Advanced > Developer Mode
@@ -109,6 +109,8 @@ cargo build --release
 | `neywa discord channels` | List all channels in the server |
 | `neywa discord send <channel> <msg>` | Send a message to a channel (by name or ID) |
 | `neywa discord guild` | Show server info |
+| `neywa discord create <name> [-t type] [-c category]` | Create a channel |
+| `neywa discord delete <channel>` | Delete a channel (by name or ID) |
 | `neywa service install` | Enable auto-start on login |
 | `neywa service uninstall` | Disable auto-start |
 | `neywa service status` | Check service status |

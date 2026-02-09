@@ -103,7 +103,7 @@ pub async fn install() -> Result<()> {
     println!("\nStep 3: Invite bot to your server");
     println!("  1. Go to 'OAuth2' > 'URL Generator'");
     println!("  2. Select scopes: 'bot'");
-    println!("  3. Select permissions: 'Send Messages', 'Read Message History', 'View Channels'");
+    println!("  3. Select permissions: 'Manage Channels', 'Send Messages', 'Read Message History', 'View Channels'");
     println!("  4. Copy the URL and open it to invite the bot\n");
 
     // 4. Create recommended channels
@@ -130,24 +130,18 @@ pub async fn install() -> Result<()> {
 
     println!("\n=== Installation Complete ===");
     println!("Config saved to: {:?}", Config::path()?);
-    println!("\nStart the daemon with: neywa daemon");
-    println!("\nChannel functions:");
-    println!("  #general  → General AI assistant");
-    println!("  #code     → Coding with file system access");
-    println!("  #research → Web search and research");
-    println!("  #tasks    → Schedule tasks (e.g., 'remind me every day at 8am')");
-    println!("  #logs     → Auto-logged activity");
-
-    // Full Disk Access warning
-    println!("\n╔══════════════════════════════════════════════════════════════╗");
-    println!("║  ⚠️  IMPORTANT: Grant Full Disk Access to avoid permission    ║");
-    println!("║     popups when Neywa accesses files and folders.            ║");
-    println!("║                                                              ║");
-    println!("║  System Settings → Privacy & Security → Full Disk Access    ║");
-    println!("║  Add these binaries:                                         ║");
-    println!("║    • neywa  (usually ~/.local/bin/neywa)                     ║");
-    println!("║    • claude (usually ~/.local/bin/claude)                    ║");
-    println!("╚══════════════════════════════════════════════════════════════╝");
+    println!();
+    println!("Next steps:");
+    println!();
+    println!("  1. Start the service (auto-start on login):");
+    println!("     neywa service install");
+    println!();
+    println!("  2. Grant Full Disk Access (the service install will guide you)");
+    println!();
+    println!("  Other commands:");
+    println!("    neywa daemon             # Run in foreground (for testing)");
+    println!("    neywa service status     # Check service status");
+    println!("    neywa service uninstall  # Disable auto-start");
 
     Ok(())
 }

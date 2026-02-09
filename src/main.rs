@@ -160,6 +160,9 @@ fn main() -> Result<()> {
                     DiscordAction::Delete { channel } => {
                         discord_api::delete_channel(&channel).await?
                     }
+                    DiscordAction::Move { channel, category } => {
+                        discord_api::move_channel(&channel, &category).await?
+                    }
                 }
                 Ok::<_, anyhow::Error>(())
             })?;

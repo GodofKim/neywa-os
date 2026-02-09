@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neywa - AI-Powered Personal OS</title>
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <link rel="apple-touch-icon" href="/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #00d9ff;
+            --secondary: #00ff88;
+            --bg-dark: #0f111a;
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --text-main: #ffffff;
+            --text-muted: #94a3b8;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(0, 217, 255, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(0, 255, 136, 0.1) 0%, transparent 40%);
+            min-height: 100vh;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 720px;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Language Switcher */
+        .lang-switcher {
+            position: fixed;
+            top: 1.5rem;
+            right: 1.5rem;
+            display: flex;
+            gap: 0.5rem;
+            z-index: 100;
+        }
+
+        .lang-btn {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            color: var(--text-muted);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .lang-btn:hover {
+            background: rgba(255,255,255,0.08);
+        }
+
+        .lang-btn.active {
+            background: rgba(0, 217, 255, 0.15);
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        /* Glassmorphism Card */
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 3rem 2.5rem;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            animation: fadeIn 0.8s ease-out;
+            margin-bottom: 1.5rem;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .hero {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .logo {
+            width: 140px;
+            height: 140px;
+            filter: drop-shadow(0 0 30px rgba(0, 217, 255, 0.4));
+            animation: float 3s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
+        .hero-text {
+            text-align: left;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.25rem;
+            background: linear-gradient(135deg, #fff 20%, var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .tagline {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            font-weight: 300;
+        }
+
+        .features-section {
+            margin-top: 2rem;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 2.5rem;
+            text-align: left;
+        }
+
+        .feature-item {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.05);
+            padding: 0.875rem 1rem;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        .feature-item:hover {
+            transform: translateY(-2px);
+            background: rgba(255,255,255,0.05);
+            border-color: rgba(255,255,255,0.1);
+        }
+
+        .feature-icon {
+            color: var(--secondary);
+            font-size: 1.1em;
+        }
+
+        .section-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
+        /* Terminal Style Code Block */
+        .terminal {
+            background: #000;
+            border-radius: 12px;
+            border: 1px solid #333;
+            overflow: hidden;
+            margin: 1rem 0;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            text-align: left;
+        }
+
+        .terminal-header {
+            background: #1a1a1a;
+            padding: 0.5rem 1rem;
+            display: flex;
+            gap: 6px;
+            border-bottom: 1px solid #333;
+        }
+
+        .dot { width: 10px; height: 10px; border-radius: 50%; }
+        .red { background: #ff5f56; }
+        .yellow { background: #ffbd2e; }
+        .green { background: #27c93f; }
+
+        .terminal-body {
+            padding: 1rem 1.25rem;
+            font-family: 'SF Mono', 'Monaco', monospace;
+            font-size: 0.85rem;
+            color: #d4d4d4;
+            line-height: 1.6;
+        }
+
+        .cmd { color: var(--secondary); }
+        .comment { color: #6a9955; display: block; margin-top: 0.75rem; margin-bottom: 0.25rem;}
+        .dim { opacity: 0.6; }
+
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 1.25rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.75rem 1.5rem;
+            border-radius: 100px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        .btn-primary {
+            background: var(--text-main);
+            color: #000;
+            box-shadow: 0 0 20px rgba(255,255,255,0.1);
+        }
+
+        .btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(255,255,255,0.2);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.2);
+            color: var(--text-main);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.1);
+            border-color: rgba(255,255,255,0.4);
+        }
+
+        .version {
+            margin-top: 2rem;
+            font-size: 0.8rem;
+            color: rgba(255,255,255,0.2);
+        }
+
+        .glow-effect {
+            position: absolute;
+            width: 200px;
+            height: 200px;
+            background: var(--primary);
+            filter: blur(100px);
+            opacity: 0.1;
+            border-radius: 50%;
+            z-index: -1;
+            top: -50px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        /* Setup Guide Card */
+        .setup-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 2.5rem;
+            text-align: left;
+            animation: fadeIn 0.8s ease-out 0.2s both;
+        }
+
+        .setup-card h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .step {
+            margin-bottom: 1.5rem;
+            padding-left: 2rem;
+            position: relative;
+        }
+
+        .step-number {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 1.5rem;
+            height: 1.5rem;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: #000;
+            border-radius: 50%;
+            font-size: 0.8rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .step h3 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-main);
+        }
+
+        .step p {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .step a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .step a:hover {
+            text-decoration: underline;
+        }
+
+        .step code {
+            background: rgba(0,0,0,0.3);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'SF Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--secondary);
+        }
+
+        .permissions-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .permission-badge {
+            background: rgba(0, 217, 255, 0.1);
+            border: 1px solid rgba(0, 217, 255, 0.3);
+            padding: 0.25rem 0.75rem;
+            border-radius: 100px;
+            font-size: 0.75rem;
+            color: var(--primary);
+        }
+
+        .note {
+            background: rgba(255, 189, 46, 0.1);
+            border: 1px solid rgba(255, 189, 46, 0.3);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            color: #ffbd2e;
+            margin-top: 1rem;
+        }
+
+        .warning {
+            background: rgba(255, 86, 86, 0.1);
+            border: 1px solid rgba(255, 86, 86, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            font-size: 0.85rem;
+            color: #ff5656;
+            margin-top: 1rem;
+        }
+
+        .warning code {
+            background: rgba(255, 86, 86, 0.2);
+            color: #ff8888;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
+        .warning p {
+            color: #ff8888;
+            opacity: 0.9;
+        }
+
+        /* Commands Section */
+        .commands-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .command-item {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 1rem;
+        }
+
+        .command-item.highlight {
+            background: rgba(0, 217, 255, 0.05);
+            border-color: rgba(0, 217, 255, 0.2);
+        }
+
+        .command-item code {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--secondary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'SF Mono', monospace;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .command-alias {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+
+        .command-item p {
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .feature-highlight {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-top: 1rem;
+        }
+
+        .feature-highlight h3 {
+            font-size: 1rem;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-highlight p {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 2rem 0;
+            margin-top: 2rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .footer-links {
+            margin-bottom: 1rem;
+        }
+
+        .github-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .github-link:hover {
+            color: var(--text-main);
+            border-color: rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.05);
+        }
+
+        .footer a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        .footer-sub {
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            opacity: 0.6;
+        }
+
+        @media (max-width: 600px) {
+            h1 { font-size: 2.25rem; }
+            .card, .setup-card { padding: 1.75rem 1.25rem; }
+            .features-grid { grid-template-columns: 1fr; }
+            .commands-grid { grid-template-columns: 1fr; }
+            .lang-switcher { top: 1rem; right: 1rem; }
+            .hero {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            .hero-text {
+                text-align: center;
+            }
+            .logo {
+                width: 120px;
+                height: 120px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Language Switcher -->
+    <div class="lang-switcher">
+        <button class="lang-btn active" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="ko">한국어</button>
+        <button class="lang-btn" data-lang="zh">中文</button>
+        <button class="lang-btn" data-lang="ja">日本語</button>
+    </div>
+
+    <div class="container">
+        <!-- Main Card -->
+        <div class="card">
+            <div class="glow-effect"></div>
+
+            <div class="hero">
+                <img src="/logo.png" alt="Neywa Logo" class="logo">
+                <div class="hero-text">
+                    <h1>Neywa</h1>
+                    <p class="tagline" data-en="The AI-Powered Personal OS living in your Discord" data-ko="Discord에서 살아가는 AI 개인 운영체제" data-ja="Discordに住むAIパーソナルOS" data-zh="生活在Discord中的AI个人操作系统"></p>
+                </div>
+            </div>
+
+            <div class="features-grid">
+                <div class="feature-item">
+                    <span class="feature-icon">💬</span>
+                    <span data-en="Discord AI Assistant" data-ko="Discord AI 어시스턴트" data-ja="Discord AIアシスタント" data-zh="Discord AI助手"></span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">⚡</span>
+                    <span data-en="Claude Code Power" data-ko="Claude Code 파워" data-ja="Claude Codeパワー" data-zh="Claude Code驱动"></span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">📂</span>
+                    <span data-en="File & Code Access" data-ko="파일 & 코드 접근" data-ja="ファイル＆コードアクセス" data-zh="文件和代码访问"></span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">🚀</span>
+                    <span data-en="Real-time Streaming" data-ko="실시간 스트리밍" data-ja="リアルタイムストリーミング" data-zh="实时流式传输"></span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">🛑</span>
+                    <span data-en="Instant Stop (!stop)" data-ko="즉시 중단 (!stop)" data-ja="即時停止 (!stop)" data-zh="即时停止 (!stop)"></span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">📋</span>
+                    <span data-en="Message Queue System" data-ko="메시지 큐 시스템" data-ja="メッセージキューシステム" data-zh="消息队列系统"></span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">👥</span>
+                    <span data-en="Multi-user Support" data-ko="멀티유저 지원" data-ja="マルチユーザーサポート" data-zh="多用户支持"></span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">🔄</span>
+                    <span data-en="Auto-start on Login" data-ko="로그인 시 자동 시작" data-ja="ログイン時に自動起動" data-zh="登录时自动启动"></span>
+                </div>
+            </div>
+
+            <div class="download-section">
+                <div class="section-title" data-en="Quick Install" data-ko="빠른 설치" data-ja="クイックインストール" data-zh="快速安装"></div>
+                <div class="terminal">
+                    <div class="terminal-header">
+                        <div class="dot red"></div>
+                        <div class="dot yellow"></div>
+                        <div class="dot green"></div>
+                    </div>
+                    <div class="terminal-body">
+                        <span class="cmd">curl -fsSL https://neywa.ai/install.sh | bash</span>
+                        <span class="comment" data-en="# Post-install setup" data-ko="# 설치 후 설정" data-ja="# インストール後の設定" data-zh="# 安装后配置"></span>
+                        <span class="cmd">neywa install</span>
+                        <span class="comment" data-en="# Start service" data-ko="# 서비스 시작" data-ja="# サービス起動" data-zh="# 启动服务"></span>
+                        <span class="cmd">neywa service install</span>
+                    </div>
+                </div>
+
+            </div>
+
+            <p class="version">v0.3.0 • macOS (arm64)</p>
+        </div>
+
+        <!-- Discord Setup Guide -->
+        <div class="setup-card">
+            <h2>🤖 <span data-en="Discord Bot Setup Guide" data-ko="Discord 봇 설정 가이드" data-ja="Discord Bot セットアップガイド" data-zh="Discord 机器人设置指南"></span></h2>
+
+            <div class="step">
+                <span class="step-number">1</span>
+                <h3 data-en="Create Discord Application" data-ko="Discord 애플리케이션 생성" data-ja="Discordアプリケーションを作成" data-zh="创建Discord应用程序"></h3>
+                <p data-en="Create a new application on the Discord Developer Portal." data-ko="Discord Developer Portal에서 새 애플리케이션을 만드세요." data-ja="Discord Developer Portalで新しいアプリケーションを作成します。" data-zh="在Discord Developer Portal上创建新应用程序。"></p>
+                <a href="https://discord.com/developers/applications" target="_blank">discord.com/developers/applications</a>
+            </div>
+
+            <div class="step">
+                <span class="step-number">2</span>
+                <h3 data-en="Create Bot & Copy Token" data-ko="봇 생성 & 토큰 복사" data-ja="Botを作成してトークンをコピー" data-zh="创建机器人并复制令牌"></h3>
+                <p data-en="Go to the Bot tab, click 'Add Bot', then copy the token. Save it securely - you can only view it once." data-ko="Bot 탭에서 'Add Bot' 클릭 후, 토큰을 복사하세요. 이 토큰은 한 번만 볼 수 있으니 안전하게 보관하세요." data-ja="Botタブで「Add Bot」をクリックし、トークンをコピーします。トークンは一度しか表示されないので安全に保管してください。" data-zh="转到Bot选项卡，点击"Add Bot"，然后复制令牌。请妥善保存 - 令牌只显示一次。"></p>
+            </div>
+
+            <div class="step">
+                <span class="step-number">3</span>
+                <h3 data-en="Enable Privileged Gateway Intents" data-ko="Privileged Gateway Intents 활성화" data-ja="Privileged Gateway Intentsを有効化" data-zh="启用Privileged Gateway Intents"></h3>
+                <p data-en="In the Bot tab, enable all of these options:" data-ko="Bot 탭에서 아래 옵션들을 모두 켜세요:" data-ja="Botタブで以下のオプションをすべて有効にしてください：" data-zh="在Bot选项卡中启用以下所有选项："></p>
+                <div class="permissions-list">
+                    <span class="permission-badge">Message Content Intent</span>
+                    <span class="permission-badge">Server Members Intent</span>
+                    <span class="permission-badge">Presence Intent</span>
+                </div>
+            </div>
+
+            <div class="step">
+                <span class="step-number">4</span>
+                <h3 data-en="Invite Bot to Server" data-ko="서버에 봇 초대" data-ja="サーバーにBotを招待" data-zh="邀请机器人到服务器"></h3>
+                <p data-en="Go to OAuth2 → URL Generator and select these permissions:" data-ko="OAuth2 → URL Generator에서 권한을 선택하세요:" data-ja="OAuth2 → URL Generatorで以下の権限を選択してください：" data-zh="转到OAuth2 → URL Generator并选择以下权限："></p>
+                <div class="permissions-list">
+                    <span class="permission-badge">bot</span>
+                    <span class="permission-badge">Manage Channels</span>
+                    <span class="permission-badge">Send Messages</span>
+                    <span class="permission-badge">Read Message History</span>
+                    <span class="permission-badge">Attach Files</span>
+                </div>
+                <p style="margin-top: 0.5rem;" data-en="Use the generated URL to invite the bot to your server." data-ko="생성된 URL로 봇을 서버에 초대하세요." data-ja="生成されたURLを使用してBotをサーバーに招待します。" data-zh="使用生成的URL将机器人邀请到您的服务器。"></p>
+                <p style="margin-top: 0.5rem; font-size: 0.85rem;" data-en="💡 Manage Channels permission lets Claude create/delete channels to organize workflows." data-ko="💡 Manage Channels 권한으로 Claude가 채널을 생성/삭제하여 워크플로우를 관리할 수 있습니다." data-ja="💡 Manage Channels権限でClaudeがチャンネルを作成/削除してワークフローを管理できます。" data-zh="💡 Manage Channels权限允许Claude创建/删除频道以组织工作流程。"></p>
+            </div>
+
+            <div class="step">
+                <span class="step-number">5</span>
+                <h3 data-en="Get Server (Guild) ID" data-ko="서버 (Guild) ID 얻기" data-ja="サーバー (Guild) IDを取得" data-zh="获取服务器 (Guild) ID"></h3>
+                <p data-en="Enable Developer Mode in Discord Settings > Advanced > Developer Mode." data-ko="Discord 설정 > 고급 > 개발자 모드를 활성화하세요." data-ja="Discord設定 > 詳細設定 > 開発者モードを有効にしてください。" data-zh="在Discord设置 > 高级 > 开发者模式中启用。"></p>
+                <p data-en="Then right-click your server icon and select 'Copy Server ID'." data-ko="그다음 서버 아이콘을 우클릭하고 '서버 ID 복사'를 선택하세요." data-ja="次にサーバーアイコンを右クリックして「サーバーIDをコピー」を選択してください。" data-zh="然后右键点击服务器图标并选择"复制服务器ID"。"></p>
+            </div>
+
+            <div class="step">
+                <span class="step-number">6</span>
+                <h3 data-en="Configure Neywa" data-ko="Neywa 설정" data-ja="Neywaを設定" data-zh="配置Neywa"></h3>
+                <p data-en="Run the install command and enter your bot token and server ID when prompted:" data-ko="설치 명령어를 실행하면 봇 토큰과 서버 ID를 입력하라는 메시지가 나옵니다:" data-ja="インストールコマンドを実行し、プロンプトが表示されたらBotトークンとサーバーIDを入力してください：" data-zh="运行安装命令，并在提示时输入机器人令牌和服务器ID："></p>
+                <code>neywa install</code>
+                <p style="margin-top: 0.5rem;" data-en="Your config will be stored at:" data-ko="설정은 안전하게 저장됩니다:" data-ja="設定は以下に保存されます：" data-zh="您的配置将存储在："></p>
+                <code>~/.config/neywa/config.json</code>
+            </div>
+
+            <div class="step">
+                <span class="step-number">7</span>
+                <h3 data-en="Start the Service" data-ko="서비스 시작" data-ja="サービスを起動" data-zh="启动服务"></h3>
+                <p data-en="Install and start Neywa as a background service:" data-ko="Neywa를 백그라운드 서비스로 설치하고 시작하세요:" data-ja="Neywaをバックグラウンドサービスとしてインストールして起動します：" data-zh="将Neywa安装并启动为后台服务："></p>
+                <code>neywa service install</code>
+                <p style="margin-top: 0.5rem;" data-en="Neywa will auto-start on login and auto-restart if it crashes." data-ko="로그인 시 자동 시작되며, 크래시 시 자동으로 재시작됩니다." data-ja="ログイン時に自動起動し、クラッシュ時に自動的に再起動されます。" data-zh="登录时自动启动，崩溃时自动重启。"></p>
+                <div class="feature-box" style="margin-top: 1rem; padding: 1rem; background: rgba(0, 217, 255, 0.1); border-radius: 8px; border-left: 3px solid var(--primary);">
+                    <strong data-en="💤 Sleep Prevention" data-ko="💤 잠자기 방지" data-ja="💤 スリープ防止" data-zh="💤 防止休眠"></strong>
+                    <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;" data-en="Service mode automatically prevents system sleep (display can still turn off). Perfect for remote access - leave your Mac open and control it from anywhere via Discord!" data-ko="서비스 모드는 자동으로 시스템 잠자기를 방지합니다 (화면은 꺼질 수 있음). 원격 접속에 최적 - 맥북을 열어두고 어디서든 디스코드로 제어하세요!" data-ja="サービスモードは自動的にシステムスリープを防止します（ディスプレイはオフになる可能性があります）。リモートアクセスに最適 - Macを開いたままにして、どこからでもDiscordで制御できます！" data-zh="服务模式自动防止系统休眠（显示器仍可关闭）。非常适合远程访问 - 让Mac保持打开状态，随时随地通过Discord控制！"></p>
+                </div>
+            </div>
+
+            <div class="step">
+                <span class="step-number">8</span>
+                <h3 data-en="Grant Full Disk Access" data-ko="전체 디스크 접근 권한 부여" data-ja="フルディスクアクセスを許可" data-zh="授予完全磁盘访问权限"></h3>
+                <p data-en="Without this, macOS will show permission popups constantly." data-ko="이 설정 없이는 macOS에서 권한 팝업이 계속 표시됩니다." data-ja="この設定なしでは、macOSが権限ポップアップを頻繁に表示します。" data-zh="如果没有此设置，macOS会不断显示权限弹窗。"></p>
+                <p style="margin-top: 0.5rem;" data-en="System Settings > Privacy & Security > Full Disk Access" data-ko="시스템 설정 > 개인 정보 보호 및 보안 > 전체 디스크 접근" data-ja="システム設定 > プライバシーとセキュリティ > フルディスクアクセス" data-zh="系统设置 > 隐私与安全 > 完全磁盘访问"></p>
+                <p data-en="Add: Neywa.app (from /Applications, auto-created by step 7)" data-ko="추가: Neywa.app (/Applications에서 찾기, 7단계에서 자동 생성됨)" data-ja="追加: Neywa.app（/Applicationsから、ステップ7で自動作成）" data-zh="添加: Neywa.app（在/Applications中，由步骤7自动创建）"></p>
+            </div>
+
+            <div class="note">
+                <strong data-en="Note:" data-ko="참고:" data-ja="注意:" data-zh="注意:"></strong>
+                <span data-en=" Claude Code CLI must be installed first. " data-ko=" Claude Code CLI가 먼저 설치되어 있어야 합니다. " data-ja=" Claude Code CLIが先にインストールされている必要があります。" data-zh=" 必须先安装Claude Code CLI。"></span>
+                <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" style="color: #ffbd2e;">docs.anthropic.com/en/docs/claude-code</a>
+            </div>
+
+            <div class="warning">
+                <strong data-en="⚠️ Warning:" data-ko="⚠️ 주의:" data-ja="⚠️ 警告:" data-zh="⚠️ 警告:"></strong>
+                <span data-en=" Neywa uses " data-ko=" Neywa는 " data-ja=" Neywaは " data-zh=" Neywa使用 "></span>
+                <code>--dangerously-skip-permissions</code>
+                <span data-en=" flag, executing all actions without approval prompts. File modifications, deletions, and command executions happen automatically. Use with caution." data-ko=" 플래그를 사용하여 승인 요청 없이 모든 작업을 수행합니다. 파일 수정, 삭제, 명령어 실행 등이 자동으로 이루어지므로 신중하게 사용하세요." data-ja=" フラグを使用し、承認プロンプトなしですべてのアクションを実行します。ファイルの変更、削除、コマンド実行が自動的に行われます。慎重に使用してください。" data-zh=" 标志，无需批准提示即可执行所有操作。文件修改、删除和命令执行会自动进行。请谨慎使用。"></span>
+                <p style="margin-top: 0.75rem;" data-en="To prevent unwanted actions, write restrictions in your ~/CLAUDE.md file beforehand." data-ko="원치 않는 작업을 방지하려면 ~/CLAUDE.md 파일에 제한사항을 미리 작성해두세요." data-ja="望ましくないアクションを防ぐには、~/CLAUDE.mdファイルに事前に制限事項を記述してください。" data-zh="为防止意外操作，请提前在~/CLAUDE.md文件中写入限制条件。"></p>
+            </div>
+        </div>
+
+        <!-- Commands Guide -->
+        <div class="setup-card" style="margin-top: 1.5rem;">
+            <h2>⌨️ <span data-en="Discord Commands" data-ko="Discord 명령어" data-ja="Discordコマンド" data-zh="Discord命令"></span></h2>
+
+            <div class="commands-grid">
+                <div class="command-item">
+                    <code>!help</code>
+                    <p data-en="Show available commands" data-ko="사용 가능한 명령어 목록 보기" data-ja="利用可能なコマンドを表示" data-zh="显示可用命令"></p>
+                </div>
+                <div class="command-item">
+                    <code>!status</code>
+                    <p data-en="Check session status, processing state, queue" data-ko="현재 세션 상태, 처리 중 여부, 대기열 확인" data-ja="セッション状態、処理状況、キューを確認" data-zh="检查会话状态、处理状态、队列"></p>
+                </div>
+                <div class="command-item">
+                    <code>!new</code>
+                    <p data-en="Start a new conversation session" data-ko="새로운 대화 세션 시작" data-ja="新しい会話セッションを開始" data-zh="开始新的对话会话"></p>
+                </div>
+                <div class="command-item highlight">
+                    <code>!stop</code>
+                    <p data-en="Stop current processing and clear queue" data-ko="현재 처리 즉시 중단 및 대기열 클리어" data-ja="現在の処理を停止しキューをクリア" data-zh="停止当前处理并清除队列"></p>
+                </div>
+                <div class="command-item">
+                    <code>!queue</code>
+                    <p data-en="Show queued messages" data-ko="대기 중인 메시지 목록 확인" data-ja="キュー内のメッセージを表示" data-zh="显示排队中的消息"></p>
+                </div>
+                <div class="command-item">
+                    <code>!update</code>
+                    <p data-en="Self-update to latest version" data-ko="최신 버전으로 자동 업데이트" data-ja="最新バージョンに自動更新" data-zh="自动更新到最新版本"></p>
+                </div>
+            </div>
+
+            <div class="section-title" style="margin-top: 1.5rem;" data-en="Terminal Commands" data-ko="터미널 명령어" data-ja="ターミナルコマンド" data-zh="终端命令"></div>
+            <div class="commands-grid">
+                <div class="command-item">
+                    <code>neywa discord channels</code>
+                    <p data-en="List all channels in the server" data-ko="서버의 모든 채널 목록 조회" data-ja="サーバーの全チャンネル一覧" data-zh="列出服务器所有频道"></p>
+                </div>
+                <div class="command-item">
+                    <code>neywa discord send</code>
+                    <p data-en="Send a message to a channel (by name or ID)" data-ko="채널에 메시지 전송 (이름 또는 ID)" data-ja="チャンネルにメッセージ送信" data-zh="向频道发送消息"></p>
+                </div>
+                <div class="command-item">
+                    <code>neywa discord guild</code>
+                    <p data-en="Show server info" data-ko="서버 정보 확인" data-ja="サーバー情報を表示" data-zh="显示服务器信息"></p>
+                </div>
+                <div class="command-item">
+                    <code>neywa discord create</code>
+                    <p data-en="Create a channel (text, voice, category, etc.)" data-ko="채널 생성 (text, voice, category 등)" data-ja="チャンネルを作成（text、voice、categoryなど）" data-zh="创建频道（text、voice、category等）"></p>
+                </div>
+                <div class="command-item">
+                    <code>neywa discord delete</code>
+                    <p data-en="Delete a channel (by name or ID)" data-ko="채널 삭제 (이름 또는 ID)" data-ja="チャンネルを削除（名前またはID）" data-zh="删除频道（按名称或ID）"></p>
+                </div>
+                <div class="command-item">
+                    <code>neywa discord move</code>
+                    <p data-en="Move a channel to a different category" data-ko="채널을 다른 카테고리로 이동" data-ja="チャンネルを別のカテゴリに移動" data-zh="将频道移动到其他分类"></p>
+                </div>
+                <div class="command-item">
+                    <code>neywa config</code>
+                    <p data-en="Show current configuration" data-ko="현재 설정 확인" data-ja="現在の設定を表示" data-zh="显示当前配置"></p>
+                </div>
+                <div class="command-item">
+                    <code>neywa service install</code>
+                    <p data-en="Enable auto-start on login" data-ko="로그인 시 자동 시작 활성화" data-ja="ログイン時の自動起動を有効化" data-zh="启用登录时自动启动"></p>
+                </div>
+                <div class="command-item">
+                    <code>neywa service uninstall</code>
+                    <p data-en="Disable auto-start" data-ko="자동 시작 비활성화" data-ja="自動起動を無効化" data-zh="禁用自动启动"></p>
+                </div>
+            </div>
+
+            <div class="feature-highlight">
+                <h3 data-en="Message Queue System" data-ko="메시지 큐 시스템" data-ja="メッセージキューシステム" data-zh="消息队列系统"></h3>
+                <p data-en="Messages sent while Claude is processing are automatically queued. They'll be processed sequentially after the current task completes." data-ko="Claude가 처리 중일 때 보낸 메시지는 자동으로 대기열에 추가됩니다. 현재 작업이 완료되면 순차적으로 처리됩니다." data-ja="Claudeが処理中に送信されたメッセージは自動的にキューに追加されます。現在のタスクが完了すると順次処理されます。" data-zh="Claude处理时发送的消息会自动加入队列。当前任务完成后将按顺序处理。"></p>
+            </div>
+
+            <div class="feature-highlight">
+                <h3 data-en="Multi-user Support" data-ko="멀티유저 지원" data-ja="マルチユーザーサポート" data-zh="多用户支持"></h3>
+                <p data-en="Claude distinguishes who's speaking even when multiple users chat in the same channel. Usernames are automatically included with each message." data-ko="같은 채널에서 여러 사용자가 대화해도 Claude가 누가 말하는지 구분합니다. 각 메시지에 사용자 이름이 자동으로 포함됩니다." data-ja="同じチャンネルで複数のユーザーがチャットしても、Claudeは誰が話しているかを区別します。各メッセージにユーザー名が自動的に含まれます。" data-zh="即使多个用户在同一频道聊天，Claude也能区分谁在说话。每条消息会自动包含用户名。"></p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-links">
+                <a href="https://github.com/GodofKim/neywa-os" target="_blank" class="github-link">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                    </svg>
+                    GitHub
+                </a>
+            </div>
+            <p>Built by <a href="https://alienz.ooo" target="_blank">ALIENZ</a></p>
+            <p class="footer-sub">Open Source (MIT License)</p>
+        </footer>
+    </div>
+
+    <script>
+        // Language switching - supports EN, KO, JA, ZH
+        const langBtns = document.querySelectorAll('.lang-btn');
+        const translatableElements = document.querySelectorAll('[data-en]');
+
+        function setLanguage(lang) {
+            // Update button states
+            langBtns.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.lang === lang);
+            });
+
+            // Update translatable content
+            translatableElements.forEach(el => {
+                const text = el.dataset[lang] || el.dataset['en']; // Fallback to English
+                if (text) {
+                    el.textContent = text;
+                }
+            });
+
+            // Update html lang attribute
+            const langMap = { 'en': 'en', 'ko': 'ko', 'ja': 'ja', 'zh': 'zh-CN' };
+            document.documentElement.lang = langMap[lang] || 'en';
+
+            // Save preference
+            localStorage.setItem('neywa-lang', lang);
+        }
+
+        // Event listeners
+        langBtns.forEach(btn => {
+            btn.addEventListener('click', () => setLanguage(btn.dataset.lang));
+        });
+
+        // Load saved preference or detect browser language
+        const savedLang = localStorage.getItem('neywa-lang');
+        function detectBrowserLang() {
+            const browserLang = navigator.language.toLowerCase();
+            if (browserLang.startsWith('ko')) return 'ko';
+            if (browserLang.startsWith('ja')) return 'ja';
+            if (browserLang.startsWith('zh')) return 'zh';
+            return 'en';
+        }
+        setLanguage(savedLang || detectBrowserLang());
+    </script>
+</body>
+</html>

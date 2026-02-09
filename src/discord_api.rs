@@ -277,6 +277,48 @@ pub async fn delete_channel(channel: &str) -> Result<()> {
     Ok(())
 }
 
+/// Move a channel to a different category
+pub async fn move_channel(channel: &str, category: &str) -> Result<()> {
+    let (token, guild_id) = load_token_and_guild()?;
+    let client = build_client(&token);
+
+    // Resolve channel
+    let channel_id = if channel.parse::<u64>().is_ok() {
+        channel.to_string()
+    } else {
+        let name = channel.strip_prefix('#').unwrap_or(channel);
+        resolve_channel_by_name(&client, guild_id, name).await?
+    };
+
+    // Resolve category
+    let category_id = if category.parse::<u64>().is_ok() {
+        category.to_string()
+    } else {
+        let url = format!("{}/guilds/{}/channels", DISCORD_API_BASE, guild_id);
+        let response = client.get(&url).send().await?;
+        let channels: Vec<Channel> = response.json().await?;
+        let lower_cat = category.to_lowercase();
+        channels
+            .iter()
+            .find(|c| c.channel_type == 4 && c.name.as_ref().map(|n| n.to_lowercase() == lower_cat).unwrap_or(false))
+            .map(|c| c.id.clone())
+            .context(format!("Category '{}' not found", category))?
+    };
+
+    let url = format!("{}/channels/{}", DISCORD_API_BASE, channel_id);
+    let body = serde_json::json!({ "parent_id": category_id });
+    let response = client.patch(&url).json(&body).send().await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("Failed to move channel ({}): {}", status, body);
+    }
+
+    println!("Channel '{}' moved to category '{}'", channel, category);
+    Ok(())
+}
+
 /// Resolve channel name to ID
 async fn resolve_channel_by_name(
     client: &reqwest::Client,

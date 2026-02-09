@@ -70,6 +70,10 @@ neywa discord create announcements -t announcement --topic 'Important updates'
 # Create a category
 neywa discord create 'My Category' -t category
 
+# Move a channel to a different category
+neywa discord move dev-logs 'Development'
+neywa discord move 1234567890 'Archive'
+
 # Delete a channel (by name or ID)
 neywa discord delete old-channel
 neywa discord delete 1234567890

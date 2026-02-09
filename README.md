@@ -111,6 +111,7 @@ cargo build --release
 | `neywa discord guild` | Show server info |
 | `neywa discord create <name> [-t type] [-c category]` | Create a channel |
 | `neywa discord delete <channel>` | Delete a channel (by name or ID) |
+| `neywa discord move <channel> <category>` | Move a channel to a different category |
 | `neywa service install` | Enable auto-start on login |
 | `neywa service uninstall` | Disable auto-start |
 | `neywa service status` | Check service status |

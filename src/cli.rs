@@ -91,4 +91,13 @@ pub enum DiscordAction {
         /// Channel name or ID to delete
         channel: String,
     },
+
+    /// Move a channel to a different category
+    Move {
+        /// Channel name or ID to move
+        channel: String,
+
+        /// Target category name or ID
+        category: String,
+    },
 }

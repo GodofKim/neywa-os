@@ -61,6 +61,19 @@ fn app_exe_path() -> PathBuf {
     PathBuf::from(APP_BUNDLE_PATH).join("Contents/MacOS/neywa")
 }
 
+fn launchctl_target() -> Result<String> {
+    let uid = std::env::var("UID").ok().filter(|v| !v.trim().is_empty()).or_else(|| {
+        let output = Command::new("id").arg("-u").output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let uid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if uid.is_empty() { None } else { Some(uid) }
+    }).context("Could not determine current uid")?;
+
+    Ok(format!("gui/{}/com.neywa.daemon", uid))
+}
+
 /// Create or update the Neywa.app bundle in /Applications
 /// This allows the binary to be registered in Full Disk Access
 fn create_app_bundle(source_exe: &PathBuf) -> Result<()> {
@@ -312,30 +325,44 @@ pub fn uninstall() -> Result<()> {
 /// Show service status
 pub fn status() -> Result<()> {
     let plist = plist_path()?;
+    let app_exe = app_exe_path();
+    let target = launchctl_target()?;
 
     println!("LaunchAgent path: {:?}", plist);
     println!("Installed: {}", plist.exists());
+    println!("CLI version: {}", env!("CARGO_PKG_VERSION"));
+    println!("App binary path: {}", app_exe.display());
+    println!("App binary exists: {}", app_exe.exists());
 
-    // Check if service is loaded
+    if app_exe.exists() {
+        let app_ver = Command::new(&app_exe).arg("--version").output();
+        if let Ok(out) = app_ver {
+            if out.status.success() {
+                let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                println!("App binary version: {}", v);
+            }
+        }
+    }
+
+    // Check if service is loaded/running in the current GUI domain
     let output = Command::new("launchctl")
-        .args(["list", "com.neywa.daemon"])
+        .args(["print", &target])
         .output()
         .context("Failed to run launchctl")?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        println!("Status: Running");
+        let is_running = stdout.contains("state = running");
+        println!("Status: {}", if is_running { "Running" } else { "Loaded (not running)" });
 
-        // Parse PID if available
+        // Parse PID if available from launchctl print output
         for line in stdout.lines() {
-            if line.contains("PID") || line.starts_with('"') {
+            let line = line.trim();
+            if !line.starts_with("pid = ") {
                 continue;
             }
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 1 {
-                if let Ok(pid) = parts[0].parse::<u32>() {
-                    println!("PID: {}", pid);
-                }
+            if let Some(pid) = line.strip_prefix("pid = ").and_then(|s| s.parse::<u32>().ok()) {
+                println!("PID: {}", pid);
             }
         }
     } else {

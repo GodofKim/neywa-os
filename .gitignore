@@ -3,3 +3,4 @@ CLAUDE.md
 node_modules/
 dist/
 .wrangler/
+.DS_Store

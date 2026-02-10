@@ -88,6 +88,87 @@ impl TypeMapKey for SessionStorage {
     type Value = Arc<RwLock<HashMap<SessionKey, String>>>;
 }
 
+/// Trim old messages from a Claude Code session JSONL file
+/// Keeps system messages and the last ~30% of conversation messages
+/// Returns true if trimming was successful
+fn trim_session_file(session_id: &str) -> bool {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return false,
+    };
+    let session_path = home
+        .join(".claude/projects/-")
+        .join(format!("{}.jsonl", session_id));
+
+    if !session_path.exists() {
+        tracing::warn!("Session file not found: {:?}", session_path);
+        return false;
+    }
+
+    let content = match std::fs::read_to_string(&session_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("Failed to read session file: {}", e);
+            return false;
+        }
+    };
+
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len();
+
+    if total < 50 {
+        tracing::info!("Session too small to trim ({} lines)", total);
+        return false;
+    }
+
+    // Separate system/meta lines from conversation lines
+    let mut system_lines = Vec::new();
+    let mut conv_lines = Vec::new();
+
+    for line in &lines {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(line) {
+            let msg_type = data.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if msg_type == "system" || msg_type == "queue-operation" {
+                system_lines.push(*line);
+            } else {
+                conv_lines.push(*line);
+            }
+        } else {
+            conv_lines.push(*line);
+        }
+    }
+
+    // Keep only the last 30% of conversation messages
+    let keep_count = (conv_lines.len() as f64 * 0.3).ceil() as usize;
+    let keep_count = keep_count.max(20); // At least 20 messages
+    let trimmed_conv: Vec<&str> = if conv_lines.len() > keep_count {
+        conv_lines[conv_lines.len() - keep_count..].to_vec()
+    } else {
+        conv_lines
+    };
+
+    // Rebuild file: system lines + trimmed conversation
+    let mut new_lines = system_lines;
+    new_lines.extend(trimmed_conv);
+    let new_content = new_lines.join("\n") + "\n";
+
+    match std::fs::write(&session_path, new_content) {
+        Ok(_) => {
+            tracing::info!(
+                "Trimmed session {}: {} -> {} lines",
+                session_id,
+                total,
+                new_lines.len()
+            );
+            true
+        }
+        Err(e) => {
+            tracing::error!("Failed to write trimmed session: {}", e);
+            false
+        }
+    }
+}
+
 /// Path for storing sessions
 fn sessions_file_path() -> std::path::PathBuf {
     let config_dir = dirs::config_dir()
@@ -321,11 +402,11 @@ impl Handler {
         }
 
         // Save session ID (memory + file)
-        if let Some(sid) = new_session_id {
+        if let Some(ref sid) = new_session_id {
             let data = ctx.data.read().await;
             if let Some(sessions) = data.get::<SessionStorage>() {
                 let mut sessions_map = sessions.write().await;
-                sessions_map.insert(session_key, sid);
+                sessions_map.insert(session_key, sid.clone());
                 // Persist to file
                 save_sessions(&sessions_map);
             }
@@ -336,16 +417,27 @@ impl Handler {
             final_text = "(No response)".to_string();
         }
 
-        // Auto-reset session if prompt is too long (context window exceeded)
+        // Auto-trim session if prompt is too long (context window exceeded)
         let lower_text = final_text.to_lowercase();
         if lower_text.contains("prompt is too long") || lower_text.contains("context window") || lower_text.contains("too many tokens") {
-            let data = ctx.data.read().await;
-            if let Some(sessions) = data.get::<SessionStorage>() {
-                let mut sessions_map = sessions.write().await;
-                sessions_map.remove(&session_key);
-                save_sessions(&sessions_map);
+            let session_to_trim = new_session_id.as_deref().or(existing_session.as_deref());
+            if let Some(sid) = session_to_trim {
+                let trimmed = trim_session_file(sid);
+                if trimmed {
+                    let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window exceeded. Trimmed old messages from session. Please send your message again.").await;
+                } else {
+                    // Trim failed, reset session entirely
+                    let data = ctx.data.read().await;
+                    if let Some(sessions) = data.get::<SessionStorage>() {
+                        let mut sessions_map = sessions.write().await;
+                        sessions_map.remove(&session_key);
+                        save_sessions(&sessions_map);
+                    }
+                    let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window exceeded. Session has been reset. Please send your message again.").await;
+                }
+            } else {
+                let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window exceeded. Please start a new session with !new.").await;
             }
-            let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window exceeded. Session has been auto-reset. Please send your message again.").await;
             return;
         }
 

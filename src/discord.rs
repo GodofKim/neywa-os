@@ -89,7 +89,7 @@ impl TypeMapKey for SessionStorage {
 }
 
 /// Trim old messages from a Claude Code session JSONL file
-/// Keeps system messages and the last ~30% of conversation messages
+/// Removes the oldest ~20% of conversation messages
 /// Returns true if trimming was successful
 fn trim_session_file(session_id: &str) -> bool {
     let home = match dirs::home_dir() {
@@ -138,8 +138,8 @@ fn trim_session_file(session_id: &str) -> bool {
         }
     }
 
-    // Keep only the last 30% of conversation messages
-    let keep_count = (conv_lines.len() as f64 * 0.3).ceil() as usize;
+    // Keep the last 80% of conversation messages (remove oldest 20%)
+    let keep_count = (conv_lines.len() as f64 * 0.8).ceil() as usize;
     let keep_count = keep_count.max(20); // At least 20 messages
     let trimmed_conv: Vec<&str> = if conv_lines.len() > keep_count {
         conv_lines[conv_lines.len() - keep_count..].to_vec()

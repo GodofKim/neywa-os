@@ -339,6 +339,26 @@ pub async fn run_streaming(
     let mut child = cmd.spawn().context(format!("Failed to spawn {}", cli_name))?;
 
     let stdout = child.stdout.take().context("Failed to get stdout")?;
+    let stderr = child.stderr.take().context("Failed to get stderr")?;
+
+    // Spawn task to read stderr in background
+    let stderr_tx = tx.clone();
+    tokio::spawn(async move {
+        let reader = BufReader::new(stderr);
+        let mut lines = reader.lines();
+        let mut stderr_buf = String::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            stderr_buf.push_str(&line);
+            stderr_buf.push('\n');
+        }
+        if !stderr_buf.is_empty() {
+            let lower = stderr_buf.to_lowercase();
+            if lower.contains("prompt is too long") || lower.contains("context window") || lower.contains("too many tokens") {
+                let _ = stderr_tx.send(StreamEvent::Text("Prompt is too long".to_string())).await;
+                let _ = stderr_tx.send(StreamEvent::Done).await;
+            }
+        }
+    });
 
     // Spawn task to read streaming output
     tokio::spawn(async move {

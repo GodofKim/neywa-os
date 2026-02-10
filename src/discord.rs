@@ -336,6 +336,19 @@ impl Handler {
             final_text = "(No response)".to_string();
         }
 
+        // Auto-reset session if prompt is too long (context window exceeded)
+        let lower_text = final_text.to_lowercase();
+        if lower_text.contains("prompt is too long") || lower_text.contains("context window") || lower_text.contains("too many tokens") {
+            let data = ctx.data.read().await;
+            if let Some(sessions) = data.get::<SessionStorage>() {
+                let mut sessions_map = sessions.write().await;
+                sessions_map.remove(&session_key);
+                save_sessions(&sessions_map);
+            }
+            let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window exceeded. Session has been auto-reset. Please send your message again.").await;
+            return;
+        }
+
         // Detect file paths in response and send as attachments
         let file_paths = extract_file_paths(&final_text);
         tracing::info!("Detected file paths: {:?}", file_paths);

@@ -418,28 +418,65 @@ impl Handler {
             final_text = "(No response)".to_string();
         }
 
-        // Auto-trim session if prompt is too long (context window exceeded)
+        // Auto-compact session if prompt is too long (context window exceeded)
         let lower_text = final_text.to_lowercase();
         if lower_text.contains("prompt is too long") || lower_text.contains("context window") || lower_text.contains("too many tokens") {
-            let session_to_trim = new_session_id.as_deref().or(existing_session.as_deref());
-            if let Some(sid) = session_to_trim {
-                let trimmed = trim_session_file(sid);
-                if trimmed {
-                    let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window exceeded. Trimmed old messages from session. Please send your message again.").await;
-                } else {
-                    // Trim failed, reset session entirely
-                    let data = ctx.data.read().await;
-                    if let Some(sessions) = data.get::<SessionStorage>() {
-                        let mut sessions_map = sessions.write().await;
-                        sessions_map.remove(&session_key);
-                        save_sessions(&sessions_map);
+            let session_to_compact = new_session_id.as_deref().or(existing_session.as_deref());
+            if let Some(sid) = session_to_compact {
+                let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window full. Compacting session...").await;
+
+                // Run /compact on the session
+                match claude::compact_session(sid, use_z).await {
+                    Ok(_) => {
+                        let _ = msg.channel_id.say(&ctx.http, "✅ Session compacted. Retrying your message...").await;
+
+                        // Retry the original message with the compacted session
+                        match claude::run_streaming(&full_prompt, Some(sid), use_z).await {
+                            Ok(mut retry_rx) => {
+                                let mut retry_text = String::new();
+                                while let Some(event) = retry_rx.recv().await {
+                                    match event {
+                                        StreamEvent::Text(t) => retry_text.push_str(&t),
+                                        StreamEvent::Done => break,
+                                        _ => {}
+                                    }
+                                }
+                                if !retry_text.is_empty() {
+                                    final_text = retry_text;
+                                    // Fall through to normal response handling below
+                                } else {
+                                    let _ = msg.channel_id.say(&ctx.http, "⚠️ Compact succeeded but retry got empty response. Please send your message again.").await;
+                                    return;
+                                }
+                            }
+                            Err(e) => {
+                                let _ = msg.channel_id.say(&ctx.http, format!("⚠️ Compact succeeded but retry failed: {}. Please send your message again.", e)).await;
+                                return;
+                            }
+                        }
                     }
-                    let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window exceeded. Session has been reset. Please send your message again.").await;
+                    Err(e) => {
+                        // Compact failed, try trimming as fallback
+                        tracing::warn!("Compact failed: {}, trying trim fallback", e);
+                        let trimmed = trim_session_file(sid);
+                        if trimmed {
+                            let _ = msg.channel_id.say(&ctx.http, "⚠️ Compact failed. Trimmed old messages instead. Please send your message again.").await;
+                        } else {
+                            let data = ctx.data.read().await;
+                            if let Some(sessions) = data.get::<SessionStorage>() {
+                                let mut sessions_map = sessions.write().await;
+                                sessions_map.remove(&session_key);
+                                save_sessions(&sessions_map);
+                            }
+                            let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window exceeded. Session has been reset. Please send your message again.").await;
+                        }
+                        return;
+                    }
                 }
             } else {
                 let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window exceeded. Please start a new session with !new.").await;
+                return;
             }
-            return;
         }
 
         // Detect file paths in response and send as attachments

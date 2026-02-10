@@ -509,6 +509,34 @@ pub async fn run_with_session(message: &str, session_id: &str, use_z: bool) -> R
     Ok(response)
 }
 
+/// Run /compact on an existing session to compress context
+pub async fn compact_session(session_id: &str, use_z: bool) -> Result<()> {
+    let cli_path = verify_cli(use_z)?;
+    let cli_name = cli_path.to_string_lossy();
+
+    tracing::info!("Compacting session: {}", session_id);
+
+    let output = base_command(use_z)
+        .arg("--resume")
+        .arg(session_id)
+        .arg("--print")
+        .arg("/compact")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .context(format!("Failed to execute {} compact", cli_name))?;
+
+    if output.status.success() {
+        tracing::info!("Session {} compacted successfully", session_id);
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::warn!("Compact failed for session {}: {}", session_id, stderr);
+    }
+
+    Ok(())
+}
+
 /// Run Claude Code and get JSON output (includes session_id for later resume)
 pub async fn run_json(message: &str, use_z: bool) -> Result<ClaudeResponse> {
     let cli_path = verify_cli(use_z)?;

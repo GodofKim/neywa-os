@@ -1318,54 +1318,39 @@ async fn self_update() -> Result<()> {
 }
 
 /// Restart Neywa after a successful self-update.
-/// Tries LaunchAgent restart first; if unavailable, spawns a new daemon process.
+/// If running under LaunchAgent, exit non-zero so KeepAlive restarts us.
+/// Otherwise, spawn a detached daemon as fallback.
 fn restart_after_update() -> ! {
-    if let Err(e) = try_restart_launch_agent() {
-        tracing::warn!("LaunchAgent restart failed: {}", e);
-        if let Err(spawn_err) = spawn_daemon_fallback() {
-            tracing::error!("Fallback daemon spawn failed: {}", spawn_err);
-        }
+    let is_launch_agent = std::env::var("XPC_SERVICE_NAME")
+        .map(|v| v == "com.neywa.daemon")
+        .unwrap_or(false);
+
+    if is_launch_agent {
+        tracing::info!("Exiting for LaunchAgent KeepAlive restart...");
+        std::process::exit(75);
     }
 
-    // Exit with non-zero to avoid being treated as a clean stop by service managers.
-    std::process::exit(1);
-}
-
-fn try_restart_launch_agent() -> Result<()> {
-    let uid = current_uid().context("Could not determine current uid for launchctl")?;
-    let target = format!("gui/{}/com.neywa.daemon", uid);
-
-    let status = Command::new("launchctl")
-        .args(["kickstart", "-k", &target])
-        .status()
-        .context("Failed to run launchctl kickstart")?;
-
-    if !status.success() {
-        anyhow::bail!("launchctl kickstart returned non-zero for {}", target);
+    if let Err(spawn_err) = spawn_daemon_fallback() {
+        tracing::error!("Fallback daemon spawn failed: {}", spawn_err);
+        std::process::exit(1);
+    } else {
+        tracing::info!("Fallback daemon spawned after update");
+        // Exit cleanly; replacement daemon is already running.
+        std::process::exit(0);
     }
-
-    tracing::info!("LaunchAgent restarted via launchctl kickstart");
-    Ok(())
-}
-
-fn current_uid() -> Option<String> {
-    if let Ok(uid) = std::env::var("UID") {
-        if !uid.trim().is_empty() {
-            return Some(uid);
-        }
-    }
-
-    let output = Command::new("id").arg("-u").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let uid = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if uid.is_empty() { None } else { Some(uid) }
 }
 
 fn spawn_daemon_fallback() -> Result<()> {
     let exe = std::env::current_exe().context("Failed to get current executable path")?;
+
+    if let Ok(uid) = std::env::var("UID") {
+        if !uid.trim().is_empty() {
+            let target = format!("gui/{}/com.neywa.daemon", uid);
+            let _ = Command::new("launchctl")
+                .args(["kickstart", "-k", &target])
+                .status();
+        }
+    }
 
     Command::new(exe)
         .arg("daemon")

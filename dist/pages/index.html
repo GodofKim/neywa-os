@@ -605,7 +605,7 @@
 
             </div>
 
-            <p class="version">v0.3.1 • macOS (arm64)</p>
+            <p class="version">v0.3.7 • macOS (arm64 / x86_64)</p>
         </div>
 
         <!-- Discord Setup Guide -->
@@ -706,30 +706,48 @@
         <div class="setup-card" style="margin-top: 1.5rem;">
             <h2>⌨️ <span data-en="Discord Commands" data-ko="Discord 명령어" data-ja="Discordコマンド" data-zh="Discord命令"></span></h2>
 
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;" data-en="All commands work as both Discord slash commands (/cmd) and text commands (!cmd)." data-ko="모든 명령어는 슬래시 명령어 (/cmd)와 텍스트 명령어 (!cmd) 모두 사용 가능합니다." data-ja="すべてのコマンドはスラッシュコマンド (/cmd) とテキストコマンド (!cmd) の両方で使用できます。" data-zh="所有命令都可用作斜杠命令 (/cmd) 和文本命令 (!cmd)。"></p>
+
             <div class="commands-grid">
                 <div class="command-item">
-                    <code>!help</code>
+                    <code>/help</code>
                     <p data-en="Show available commands" data-ko="사용 가능한 명령어 목록 보기" data-ja="利用可能なコマンドを表示" data-zh="显示可用命令"></p>
                 </div>
                 <div class="command-item">
-                    <code>!status</code>
+                    <code>/status</code>
                     <p data-en="Check session status, processing state, queue" data-ko="현재 세션 상태, 처리 중 여부, 대기열 확인" data-ja="セッション状態、処理状況、キューを確認" data-zh="检查会话状态、处理状态、队列"></p>
                 </div>
                 <div class="command-item">
-                    <code>!new</code>
+                    <code>/new</code>
                     <p data-en="Start a new conversation session" data-ko="새로운 대화 세션 시작" data-ja="新しい会話セッションを開始" data-zh="开始新的对话会话"></p>
                 </div>
                 <div class="command-item highlight">
-                    <code>!stop</code>
+                    <code>/stop</code>
                     <p data-en="Stop current processing and clear queue" data-ko="현재 처리 즉시 중단 및 대기열 클리어" data-ja="現在の処理を停止しキューをクリア" data-zh="停止当前处理并清除队列"></p>
                 </div>
                 <div class="command-item">
-                    <code>!queue</code>
+                    <code>/queue</code>
                     <p data-en="Show queued messages" data-ko="대기 중인 메시지 목록 확인" data-ja="キュー内のメッセージを表示" data-zh="显示排队中的消息"></p>
                 </div>
+                <div class="command-item highlight">
+                    <code>/compact</code>
+                    <p data-en="Compact session context window" data-ko="세션 컨텍스트 윈도우 압축" data-ja="セッションコンテキストを圧縮" data-zh="压缩会话上下文窗口"></p>
+                </div>
                 <div class="command-item">
-                    <code>!update</code>
+                    <code>/update</code>
                     <p data-en="Self-update to latest version" data-ko="최신 버전으로 자동 업데이트" data-ja="最新バージョンに自動更新" data-zh="自动更新到最新版本"></p>
+                </div>
+                <div class="command-item">
+                    <code>/slash &lt;cmd&gt;</code>
+                    <p data-en="Run a Claude Code slash command" data-ko="Claude Code 슬래시 명령어 실행" data-ja="Claude Codeスラッシュコマンドを実行" data-zh="运行Claude Code斜杠命令"></p>
+                </div>
+            </div>
+
+            <div class="section-title" data-en="Text-only Commands" data-ko="텍스트 전용 명령어" data-ja="テキスト専用コマンド" data-zh="纯文本命令"></div>
+            <div class="commands-grid">
+                <div class="command-item">
+                    <code>!z</code>
+                    <p data-en="Toggle Z mode (claude-z / claude)" data-ko="Z 모드 토글 (claude-z / claude)" data-ja="Zモード切替 (claude-z / claude)" data-zh="切换Z模式 (claude-z / claude)"></p>
                 </div>
             </div>
 

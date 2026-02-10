@@ -91,15 +91,20 @@ cargo build --release
 
 ### Discord Commands
 
+All commands work as both Discord slash commands (`/cmd`) and text commands (`!cmd`).
+
 | Command | Description |
 |---------|-------------|
-| `!help` | Show available commands |
-| `!status` | Check session status and queue |
-| `!new` / `!reset` | Start a new conversation |
-| `!stop` | Stop current processing and clear queue |
-| `!queue` | Show queued messages |
-| `!update` | Update Neywa to the latest version |
-| `!z` | Toggle Z mode (claude-z / claude) |
+| `/help` | Show available commands |
+| `/status` | Check session status and queue |
+| `/new` | Start a new conversation |
+| `/stop` | Stop current processing and clear queue |
+| `/queue` | Show queued messages |
+| `/compact` | Compact session context window |
+| `/update` | Update Neywa to the latest version |
+| `/longtext` | How to send long text (over 2000 chars) |
+| `/slash <cmd>` | Run a Claude Code slash command (e.g., `/slash cost`) |
+| `!z` | Toggle Z mode (claude-z / claude) — text only |
 
 ### CLI Commands
 

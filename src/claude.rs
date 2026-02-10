@@ -537,6 +537,49 @@ pub async fn compact_session(session_id: &str, use_z: bool) -> Result<()> {
     Ok(())
 }
 
+/// Run a Claude Code slash command on a session
+/// Returns the command output as text
+pub async fn run_slash_command(
+    command: &str,
+    session_id: Option<&str>,
+    use_z: bool,
+) -> Result<String> {
+    let _cli_path = verify_cli(use_z)?;
+
+    let cmd_str = if command.starts_with('/') {
+        command.to_string()
+    } else {
+        format!("/{}", command)
+    };
+
+    let mut cmd = base_command(use_z);
+
+    if let Some(sid) = session_id {
+        cmd.arg("--resume").arg(sid);
+    }
+
+    cmd.arg("--print")
+        .arg(&cmd_str)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let output = cmd
+        .output()
+        .await
+        .context("Failed to execute slash command")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    if stdout.is_empty() && !stderr.is_empty() {
+        Ok(stderr)
+    } else if stdout.is_empty() {
+        Ok("Command executed (no output).".to_string())
+    } else {
+        Ok(stdout)
+    }
+}
+
 /// Run Claude Code and get JSON output (includes session_id for later resume)
 pub async fn run_json(message: &str, use_z: bool) -> Result<ClaudeResponse> {
     let cli_path = verify_cli(use_z)?;

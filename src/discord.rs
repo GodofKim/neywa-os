@@ -596,6 +596,29 @@ impl EventHandler for Handler {
 
         // Handle commands first (these don't go to queue)
 
+        // Handle help command
+        if content == "!help" || content == "!도움" {
+            let help_text = format!(
+                "**Neywa v{}** - AI Assistant\n\n\
+                **Commands** (slash `/` or text `!`):\n\
+                `help` - Show this help\n\
+                `status` - Check session status\n\
+                `new` - Start a new conversation\n\
+                `stop` - Stop processing & clear queue\n\
+                `queue` - Show queued messages\n\
+                `compact` - Compact session context window\n\
+                `update` - Update to latest version\n\
+                `longtext` - How to send long text\n\
+                `slash <cmd>` - Run Claude Code slash command\n\n\
+                **Text-only Commands:**\n\
+                `!z` - Toggle Z mode (claude-z)\n\n\
+                Just type a message to chat with AI.",
+                VERSION
+            );
+            let _ = msg.channel_id.say(&ctx.http, help_text).await;
+            return;
+        }
+
         // Handle stop command
         if content == "!stop" || content == "!중단" {
             let data = ctx.data.read().await;
@@ -719,6 +742,91 @@ impl EventHandler for Handler {
                 "📭 Queue is empty.".to_string()
             };
             let _ = msg.channel_id.say(&ctx.http, status).await;
+            return;
+        }
+
+        // Handle compact command
+        if content == "!compact" {
+            let existing_session = {
+                let data = ctx.data.read().await;
+                if let Some(sessions) = data.get::<SessionStorage>() {
+                    sessions.read().await.get(&session_key).cloned()
+                } else {
+                    None
+                }
+            };
+
+            if let Some(sid) = existing_session {
+                let _ = msg.channel_id.say(&ctx.http, "🗜️ Compacting session...").await;
+
+                let use_z = {
+                    let data = ctx.data.read().await;
+                    if let Some(z_channels) = data.get::<ZModeChannels>() {
+                        z_channels.read().await.contains(&channel_id)
+                    } else {
+                        false
+                    }
+                };
+
+                match claude::compact_session(&sid, use_z).await {
+                    Ok(_) => {
+                        let _ = msg.channel_id.say(&ctx.http, "✅ Session compacted.").await;
+                    }
+                    Err(e) => {
+                        // Try trim as fallback
+                        if trim_session_file(&sid) {
+                            let _ = msg.channel_id.say(&ctx.http, "⚠️ Compact failed, trimmed old messages instead.").await;
+                        } else {
+                            let _ = msg.channel_id.say(&ctx.http, format!("❌ Compact failed: {}", e)).await;
+                        }
+                    }
+                }
+            } else {
+                let _ = msg.channel_id.say(&ctx.http, "No active session. Nothing to compact.").await;
+            }
+            return;
+        }
+
+        // Handle slash command passthrough
+        if content.starts_with("!slash ") {
+            let slash_cmd = content.trim_start_matches("!slash ").trim().to_string();
+            if slash_cmd.is_empty() {
+                let _ = msg.channel_id.say(&ctx.http, "Usage: `!slash <command>` (e.g., `!slash compact`, `!slash cost`)").await;
+                return;
+            }
+
+            let existing_session = {
+                let data = ctx.data.read().await;
+                if let Some(sessions) = data.get::<SessionStorage>() {
+                    sessions.read().await.get(&session_key).cloned()
+                } else {
+                    None
+                }
+            };
+
+            let use_z = {
+                let data = ctx.data.read().await;
+                if let Some(z_channels) = data.get::<ZModeChannels>() {
+                    z_channels.read().await.contains(&channel_id)
+                } else {
+                    false
+                }
+            };
+
+            let display_cmd = slash_cmd.trim_start_matches('/');
+            let _ = msg.channel_id.say(&ctx.http, format!("⚡ Running `/{}`...", display_cmd)).await;
+
+            match claude::run_slash_command(&slash_cmd, existing_session.as_deref(), use_z).await {
+                Ok(result) => {
+                    let chunks = split_for_discord(&result);
+                    for chunk in chunks {
+                        let _ = msg.channel_id.say(&ctx.http, &chunk).await;
+                    }
+                }
+                Err(e) => {
+                    let _ = msg.channel_id.say(&ctx.http, format!("❌ Error: {}", e)).await;
+                }
+            }
             return;
         }
 
@@ -863,6 +971,7 @@ impl EventHandler for Handler {
             ("new", "Start a new conversation session"),
             ("stop", "Stop current processing and clear queue"),
             ("queue", "Show queued messages"),
+            ("compact", "Compact session context window"),
             ("update", "Self-update to latest version"),
             ("longtext", "Get a link to paste long text (over 2000 chars)"),
         ];
@@ -873,7 +982,26 @@ impl EventHandler for Handler {
                 tracing::error!("Failed to register /{}: {}", name, e);
             }
         }
-        tracing::info!("Registered {} slash commands", command_defs.len());
+
+        // Register /slash with a required string option
+        {
+            use serenity::model::application::CommandOptionType;
+            let slash_cmd = CreateCommand::new("slash")
+                .description("Run a Claude Code slash command")
+                .add_option(
+                    serenity::builder::CreateCommandOption::new(
+                        CommandOptionType::String,
+                        "command",
+                        "The slash command to run (e.g., compact, cost, doctor)",
+                    )
+                    .required(true),
+                );
+            if let Err(e) = serenity::model::application::Command::create_global_command(&ctx.http, slash_cmd).await {
+                tracing::error!("Failed to register /slash: {}", e);
+            }
+        }
+
+        tracing::info!("Registered {} slash commands", command_defs.len() + 1);
 
         for guild in &ready.guilds {
             if let Ok(channels) = guild.id.channels(&ctx.http).await {
@@ -901,15 +1029,17 @@ impl EventHandler for Handler {
                 "help" => {
                     format!(
                         "**Neywa v{}** - AI Assistant\n\n\
-                        **Slash Commands:**\n\
-                        `/help` - Show this help\n\
-                        `/status` - Check session status\n\
-                        `/new` - Start a new conversation\n\
-                        `/stop` - Stop processing & clear queue\n\
-                        `/queue` - Show queued messages\n\
-                        `/update` - Update to latest version\n\
-                        `/longtext` - How to send long text\n\n\
-                        **Text Commands:**\n\
+                        **Commands** (slash `/` or text `!`):\n\
+                        `help` - Show this help\n\
+                        `status` - Check session status\n\
+                        `new` - Start a new conversation\n\
+                        `stop` - Stop processing & clear queue\n\
+                        `queue` - Show queued messages\n\
+                        `compact` - Compact session context window\n\
+                        `update` - Update to latest version\n\
+                        `longtext` - How to send long text\n\
+                        `slash <cmd>` - Run Claude Code slash command\n\n\
+                        **Text-only Commands:**\n\
                         `!z` - Toggle Z mode (claude-z)\n\n\
                         Just type a message to chat with AI.",
                         VERSION
@@ -1029,6 +1159,111 @@ impl EventHandler for Handler {
                         }
                     });
                     return; // Already responded
+                }
+                "compact" => {
+                    // Respond immediately, then handle async
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("🗜️ Compacting session...")
+                    );
+                    let _ = command.create_response(&ctx.http, response).await;
+
+                    let channel = command.channel_id;
+                    let http = ctx.http.clone();
+                    let data_arc = ctx.data.clone();
+
+                    let existing_session = {
+                        let data = data_arc.read().await;
+                        if let Some(sessions) = data.get::<SessionStorage>() {
+                            sessions.read().await.get(&session_key).cloned()
+                        } else {
+                            None
+                        }
+                    };
+
+                    let use_z = {
+                        let data = data_arc.read().await;
+                        if let Some(z_channels) = data.get::<ZModeChannels>() {
+                            z_channels.read().await.contains(&channel_id)
+                        } else {
+                            false
+                        }
+                    };
+
+                    tokio::spawn(async move {
+                        if let Some(sid) = existing_session {
+                            match claude::compact_session(&sid, use_z).await {
+                                Ok(_) => {
+                                    let _ = channel.say(&http, "✅ Session compacted.").await;
+                                }
+                                Err(e) => {
+                                    if trim_session_file(&sid) {
+                                        let _ = channel.say(&http, "⚠️ Compact failed, trimmed old messages instead.").await;
+                                    } else {
+                                        let _ = channel.say(&http, format!("❌ Compact failed: {}", e)).await;
+                                    }
+                                }
+                            }
+                        } else {
+                            let _ = channel.say(&http, "No active session. Nothing to compact.").await;
+                        }
+                    });
+                    return; // Already responded
+                }
+                "slash" => {
+                    let slash_cmd = command.data.options.first()
+                        .and_then(|opt| opt.value.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    if slash_cmd.is_empty() {
+                        "Usage: `/slash <command>` (e.g., `/slash compact`, `/slash cost`)".to_string()
+                    } else {
+                        // Respond immediately, then handle async
+                        let display_cmd = slash_cmd.trim_start_matches('/').to_string();
+                        let response = CreateInteractionResponse::Message(
+                            CreateInteractionResponseMessage::new()
+                                .content(format!("⚡ Running `/{}`...", display_cmd))
+                        );
+                        let _ = command.create_response(&ctx.http, response).await;
+
+                        let channel = command.channel_id;
+                        let http = ctx.http.clone();
+                        let data_arc = ctx.data.clone();
+
+                        let existing_session = {
+                            let data = data_arc.read().await;
+                            if let Some(sessions) = data.get::<SessionStorage>() {
+                                sessions.read().await.get(&session_key).cloned()
+                            } else {
+                                None
+                            }
+                        };
+
+                        let use_z = {
+                            let data = data_arc.read().await;
+                            if let Some(z_channels) = data.get::<ZModeChannels>() {
+                                z_channels.read().await.contains(&channel_id)
+                            } else {
+                                false
+                            }
+                        };
+
+                        tokio::spawn(async move {
+                            match claude::run_slash_command(&slash_cmd, existing_session.as_deref(), use_z).await {
+                                Ok(result) => {
+                                    let chunks = split_for_discord(&result);
+                                    for chunk in chunks {
+                                        let _ = channel.say(&http, &chunk).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = channel.say(&http, format!("❌ Error: {}", e)).await;
+                                }
+                            }
+                        });
+                        return; // Already responded
+                    }
                 }
                 "longtext" => {
                     "📝 **Long Text Input**\n\n\
@@ -1355,48 +1590,42 @@ async fn self_update() -> Result<()> {
 }
 
 /// Restart Neywa after a successful self-update.
-/// If running under LaunchAgent, exit non-zero so KeepAlive restarts us.
-/// Otherwise, spawn a detached daemon as fallback.
+/// Exits cleanly and relies on LaunchAgent KeepAlive + a delayed kickstart
+/// as insurance against launchd throttling.
 fn restart_after_update() -> ! {
-    let is_launch_agent = std::env::var("XPC_SERVICE_NAME")
-        .map(|v| v == "com.neywa.daemon")
-        .unwrap_or(false);
+    // Get UID via `id -u` (env vars may not be available under LaunchAgent)
+    let uid = Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
 
-    if is_launch_agent {
-        tracing::info!("Exiting for LaunchAgent KeepAlive restart...");
-        std::process::exit(75);
+    if !uid.is_empty() {
+        let target = format!("gui/{}/com.neywa.daemon", uid);
+
+        // Spawn a delayed kickstart as insurance against KeepAlive throttling.
+        // If KeepAlive restarts us first, the kickstart is a harmless no-op.
+        let script = format!(
+            "sleep 2; launchctl kickstart {} 2>/dev/null; exit 0",
+            target
+        );
+        let _ = Command::new("bash")
+            .args(["-c", &script])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        tracing::info!("Scheduled delayed kickstart for {}", target);
     }
 
-    if let Err(spawn_err) = spawn_daemon_fallback() {
-        tracing::error!("Fallback daemon spawn failed: {}", spawn_err);
-        std::process::exit(1);
-    } else {
-        tracing::info!("Fallback daemon spawned after update");
-        // Exit cleanly; replacement daemon is already running.
-        std::process::exit(0);
-    }
-}
-
-fn spawn_daemon_fallback() -> Result<()> {
-    let exe = std::env::current_exe().context("Failed to get current executable path")?;
-
-    if let Ok(uid) = std::env::var("UID") {
-        if !uid.trim().is_empty() {
-            let target = format!("gui/{}/com.neywa.daemon", uid);
-            let _ = Command::new("launchctl")
-                .args(["kickstart", "-k", &target])
-                .status();
-        }
-    }
-
-    Command::new(exe)
-        .arg("daemon")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .context("Failed to spawn fallback daemon")?;
-
-    tracing::info!("Started fallback daemon process after update");
-    Ok(())
+    tracing::info!("Exiting for restart after update...");
+    std::process::exit(0);
 }

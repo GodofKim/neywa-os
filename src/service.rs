@@ -206,6 +206,8 @@ fn generate_plist(exe: &PathBuf) -> String {
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>3</integer>
     <key>StandardOutPath</key>
     <string>/tmp/neywa.log</string>
     <key>StandardErrorPath</key>

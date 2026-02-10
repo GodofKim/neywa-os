@@ -10,6 +10,7 @@ use serenity::model::gateway::Ready;
 use serenity::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
@@ -715,9 +716,7 @@ impl EventHandler for Handler {
                     let _ = msg.channel_id.say(&ctx.http, "✅ Update downloaded. Restarting...").await;
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-                    // Just exit - launchd KeepAlive will restart with the new binary.
-                    // No service reinstall needed, which preserves FDA permissions.
-                    std::process::exit(0);
+                    restart_after_update();
                 }
                 Err(e) => {
                     let _ = msg.channel_id.say(&ctx.http, format!("❌ Update failed: {}", e)).await;
@@ -985,8 +984,7 @@ impl EventHandler for Handler {
                                 let _ = channel.say(&http, "✅ Update downloaded. Restarting...").await;
                                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-                                // Just exit - launchd KeepAlive will restart with the new binary.
-                                std::process::exit(0);
+                                restart_after_update();
                             }
                             Err(e) => {
                                 let _ = channel.say(&http, format!("❌ Update failed: {}", e)).await;
@@ -1316,5 +1314,67 @@ async fn self_update() -> Result<()> {
 
     tracing::info!("Binary updated successfully");
 
+    Ok(())
+}
+
+/// Restart Neywa after a successful self-update.
+/// Tries LaunchAgent restart first; if unavailable, spawns a new daemon process.
+fn restart_after_update() -> ! {
+    if let Err(e) = try_restart_launch_agent() {
+        tracing::warn!("LaunchAgent restart failed: {}", e);
+        if let Err(spawn_err) = spawn_daemon_fallback() {
+            tracing::error!("Fallback daemon spawn failed: {}", spawn_err);
+        }
+    }
+
+    // Exit with non-zero to avoid being treated as a clean stop by service managers.
+    std::process::exit(1);
+}
+
+fn try_restart_launch_agent() -> Result<()> {
+    let uid = current_uid().context("Could not determine current uid for launchctl")?;
+    let target = format!("gui/{}/com.neywa.daemon", uid);
+
+    let status = Command::new("launchctl")
+        .args(["kickstart", "-k", &target])
+        .status()
+        .context("Failed to run launchctl kickstart")?;
+
+    if !status.success() {
+        anyhow::bail!("launchctl kickstart returned non-zero for {}", target);
+    }
+
+    tracing::info!("LaunchAgent restarted via launchctl kickstart");
+    Ok(())
+}
+
+fn current_uid() -> Option<String> {
+    if let Ok(uid) = std::env::var("UID") {
+        if !uid.trim().is_empty() {
+            return Some(uid);
+        }
+    }
+
+    let output = Command::new("id").arg("-u").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let uid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if uid.is_empty() { None } else { Some(uid) }
+}
+
+fn spawn_daemon_fallback() -> Result<()> {
+    let exe = std::env::current_exe().context("Failed to get current executable path")?;
+
+    Command::new(exe)
+        .arg("daemon")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("Failed to spawn fallback daemon")?;
+
+    tracing::info!("Started fallback daemon process after update");
     Ok(())
 }

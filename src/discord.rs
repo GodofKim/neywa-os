@@ -9,7 +9,7 @@ use serenity::model::application::Interaction;
 use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::prelude::*;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
@@ -88,6 +88,17 @@ type SessionKey = (u64, u64);
 struct SessionStorage;
 impl TypeMapKey for SessionStorage {
     type Value = Arc<RwLock<HashMap<SessionKey, String>>>;
+}
+
+#[derive(Debug)]
+struct AccessControl {
+    guild_id: Option<u64>,
+    allowed_user_ids: HashSet<u64>,
+}
+
+struct AccessControlState;
+impl TypeMapKey for AccessControlState {
+    type Value = Arc<AccessControl>;
 }
 
 /// Trim old messages from a Claude Code session JSONL file
@@ -302,6 +313,31 @@ fn save_human_mode(channels: &std::collections::HashSet<u64>) {
 struct Handler;
 
 impl Handler {
+    async fn is_authorized_user(
+        ctx: &serenity::client::Context,
+        user_id: u64,
+        guild_id: Option<u64>,
+    ) -> bool {
+        let data = ctx.data.read().await;
+        let Some(access) = data.get::<AccessControlState>() else {
+            tracing::warn!("Access control state missing; denying request");
+            return false;
+        };
+
+        if let Some(expected_guild) = access.guild_id {
+            if guild_id != Some(expected_guild) {
+                return false;
+            }
+        }
+
+        if access.allowed_user_ids.is_empty() {
+            tracing::warn!("No allowed_user_ids configured; denying request");
+            return false;
+        }
+
+        access.allowed_user_ids.contains(&user_id)
+    }
+
     async fn process_message(
         ctx: &serenity::client::Context,
         queued: QueuedMessage,
@@ -605,6 +641,17 @@ impl EventHandler for Handler {
             return;
         }
 
+        let user_id = msg.author.id.get();
+        let guild_id = msg.guild_id.map(|id| id.get());
+        if !Self::is_authorized_user(&ctx, user_id, guild_id).await {
+            tracing::warn!(
+                "Unauthorized message blocked (user_id={}, guild_id={:?})",
+                user_id,
+                guild_id
+            );
+            return;
+        }
+
         let channel_type = if let Some(channel) = msg.channel_id.to_channel(&ctx.http).await.ok() {
             if let Some(guild_channel) = channel.guild() {
                 ChannelType::from_name(&guild_channel.name)
@@ -637,7 +684,6 @@ impl EventHandler for Handler {
                 return;
             }
         }
-        let user_id = msg.author.id.get();
         let session_key = (user_id, channel_id);
 
         // Download attachments if any
@@ -1146,6 +1192,24 @@ impl EventHandler for Handler {
 
     async fn interaction_create(&self, ctx: serenity::client::Context, interaction: Interaction) {
         if let Interaction::Command(command) = interaction {
+            let user_id = command.user.id.get();
+            let guild_id = command.guild_id.map(|id| id.get());
+            if !Self::is_authorized_user(&ctx, user_id, guild_id).await {
+                tracing::warn!(
+                    "Unauthorized slash command blocked (user_id={}, guild_id={:?}, command={})",
+                    user_id,
+                    guild_id,
+                    command.data.name
+                );
+                let response = CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::new()
+                        .content("Unauthorized user. Add your Discord user ID to `allowed_user_ids` in Neywa config.")
+                        .ephemeral(true),
+                );
+                let _ = command.create_response(&ctx.http, response).await;
+                return;
+            }
+
             let channel_id = command.channel_id.get();
             let user_id = command.user.id.get();
             let session_key = (user_id, channel_id);
@@ -1569,6 +1633,7 @@ pub async fn run_bot() -> Result<()> {
 
     let token = config
         .discord_bot_token
+        .clone()
         .context("Discord bot token not configured. Run 'neywa install' first.")?;
 
     tracing::info!("Starting Discord bot...");
@@ -1584,9 +1649,15 @@ pub async fn run_bot() -> Result<()> {
 
     {
         let mut data = client.data.write().await;
+        let access_control = AccessControl {
+            guild_id: config.discord_guild_id,
+            allowed_user_ids: config.allowed_user_ids.iter().copied().collect(),
+        };
+
         // Load persisted sessions from file
         let sessions = load_sessions();
         data.insert::<SessionStorage>(Arc::new(RwLock::new(sessions)));
+        data.insert::<AccessControlState>(Arc::new(access_control));
         data.insert::<LogsChannel>(Arc::new(RwLock::new(None)));
         data.insert::<ZModeChannels>(Arc::new(RwLock::new(std::collections::HashSet::new())));
         data.insert::<MessageQueue>(Arc::new(RwLock::new(HashMap::new())));

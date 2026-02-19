@@ -99,15 +99,42 @@ pub async fn install() -> Result<()> {
         }
     };
 
-    // 3. Invite bot to server
-    println!("\nStep 3: Invite bot to your server");
+    // 3. Allowed user IDs (required for command execution)
+    println!("\nStep 3: Allowed Discord User IDs");
+    println!("  1. Enable Developer Mode in Discord (Settings > Advanced > Developer Mode)");
+    println!("  2. Right-click your username (or target user) and click 'Copy User ID'");
+    println!("  3. Enter one or more user IDs separated by commas\n");
+
+    print!("Enter allowed user IDs (comma-separated): ");
+    std::io::Write::flush(&mut std::io::stdout())?;
+
+    let mut allowed_ids_str = String::new();
+    std::io::stdin().read_line(&mut allowed_ids_str)?;
+    let allowed_ids_str = allowed_ids_str.trim();
+
+    let allowed_user_ids: Vec<u64> = allowed_ids_str
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            s.parse::<u64>()
+                .map_err(|_| anyhow::anyhow!("Invalid user ID: {}", s))
+        })
+        .collect::<Result<Vec<u64>>>()?;
+
+    if allowed_user_ids.is_empty() {
+        anyhow::bail!("At least one allowed user ID is required");
+    }
+
+    // 4. Invite bot to server
+    println!("\nStep 4: Invite bot to your server");
     println!("  1. Go to 'OAuth2' > 'URL Generator'");
     println!("  2. Select scopes: 'bot'");
     println!("  3. Select permissions: 'Manage Channels', 'Send Messages', 'Read Message History', 'View Channels'");
     println!("  4. Copy the URL and open it to invite the bot\n");
 
-    // 4. Create recommended channels
-    println!("Step 4: Create channels in your Discord server");
+    // 5. Create recommended channels
+    println!("Step 5: Create channels in your Discord server");
     println!("  Recommended channel structure:");
     println!("    #general  - General conversation");
     println!("    #code     - Coding tasks");
@@ -124,7 +151,7 @@ pub async fn install() -> Result<()> {
     let config = Config {
         discord_bot_token: Some(token),
         discord_guild_id: guild_id,
-        allowed_user_ids: vec![],
+        allowed_user_ids,
     };
     config.save()?;
 
@@ -170,7 +197,7 @@ pub fn show() -> Result<()> {
     }
 
     if config.allowed_user_ids.is_empty() {
-        println!("Allowed User IDs: (any)");
+        println!("Allowed User IDs: (none - all requests will be denied)");
     } else {
         println!("Allowed User IDs: {:?}", config.allowed_user_ids);
     }

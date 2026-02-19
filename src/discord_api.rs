@@ -319,6 +319,24 @@ pub async fn move_channel(channel: &str, category: &str) -> Result<()> {
     Ok(())
 }
 
+/// Rename a channel
+pub async fn rename_channel(channel_id: &str, new_name: &str) -> Result<()> {
+    let (token, _guild_id) = load_token_and_guild()?;
+    let client = build_client(&token);
+
+    let url = format!("{}/channels/{}", DISCORD_API_BASE, channel_id);
+    let body = serde_json::json!({ "name": new_name });
+    let response = client.patch(&url).json(&body).send().await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("Failed to rename channel ({}): {}", status, body);
+    }
+
+    Ok(())
+}
+
 /// Resolve channel name to ID
 async fn resolve_channel_by_name(
     client: &reqwest::Client,

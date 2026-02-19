@@ -1,5 +1,6 @@
 use crate::claude::{self, StreamEvent};
 use crate::config::Config;
+use crate::discord_api;
 use anyhow::{Context, Result};
 use regex::Regex;
 use serenity::async_trait;
@@ -259,6 +260,43 @@ impl TypeMapKey for MessageQueue {
 struct ProcessingChannels;
 impl TypeMapKey for ProcessingChannels {
     type Value = Arc<RwLock<HashMap<u64, CancellationToken>>>;
+}
+
+/// Channels in human-only mode (Neywa ignores messages)
+struct HumanModeChannels;
+impl TypeMapKey for HumanModeChannels {
+    type Value = Arc<RwLock<std::collections::HashSet<u64>>>;
+}
+
+/// Path for storing human mode channel list
+fn human_mode_file_path() -> std::path::PathBuf {
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("neywa");
+    config_dir.join("human_mode.json")
+}
+
+/// Load human mode channels from file
+fn load_human_mode() -> std::collections::HashSet<u64> {
+    let path = human_mode_file_path();
+    if !path.exists() {
+        return std::collections::HashSet::new();
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => std::collections::HashSet::new(),
+    }
+}
+
+/// Save human mode channels to file
+fn save_human_mode(channels: &std::collections::HashSet<u64>) {
+    let path = human_mode_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string(channels) {
+        let _ = std::fs::write(&path, json);
+    }
 }
 
 struct Handler;
@@ -583,6 +621,22 @@ impl EventHandler for Handler {
 
         let content = msg.content.trim().to_string();
         let channel_id = msg.channel_id.get();
+
+        // Allow !human command even in human mode (to toggle it off)
+        // But block all other messages if human mode is active
+        if content != "!human" && content != "!인간" {
+            let is_human_mode = {
+                let data = ctx.data.read().await;
+                if let Some(human_channels) = data.get::<HumanModeChannels>() {
+                    human_channels.read().await.contains(&channel_id)
+                } else {
+                    false
+                }
+            };
+            if is_human_mode {
+                return;
+            }
+        }
         let user_id = msg.author.id.get();
         let session_key = (user_id, channel_id);
 
@@ -611,7 +665,9 @@ impl EventHandler for Handler {
                 `longtext` - How to send long text\n\
                 `slash <cmd>` - Run Claude Code slash command\n\n\
                 **Text-only Commands:**\n\
-                `!z` - Toggle Z mode (claude-z)\n\n\
+                `!z` - Toggle Z mode (claude-z)\n\
+                `!human` - Toggle human-only mode (Neywa stops responding)\n\
+                `!restart` - Restart Neywa (fixes MCP/connection issues)\n\n\
                 Just type a message to chat with AI.",
                 VERSION
             );
@@ -687,6 +743,68 @@ impl EventHandler for Handler {
                     "⚡ **Z mode ON** - Using `claude-z` (z.ai API) in this channel"
                 } else {
                     "🔄 **Normal mode** - Using `claude` (Anthropic API) in this channel"
+                };
+                let _ = msg.channel_id.say(&ctx.http, mode_msg).await;
+            }
+            return;
+        }
+
+        // Handle human mode toggle
+        if content == "!human" || content == "!인간" {
+            let channel_name = if let Ok(channel) = msg.channel_id.to_channel(&ctx.http).await {
+                channel.guild().map(|gc| gc.name.clone())
+            } else {
+                None
+            };
+
+            let data = ctx.data.read().await;
+            if let Some(human_channels) = data.get::<HumanModeChannels>() {
+                let mut channels = human_channels.write().await;
+                let is_human_mode = if channels.contains(&channel_id) {
+                    // Turn OFF human mode
+                    channels.remove(&channel_id);
+                    save_human_mode(&channels);
+
+                    // Remove emoji from channel name
+                    if let Some(name) = &channel_name {
+                        let new_name = name.trim_start_matches("🙋‍♂️").trim_start_matches('-').to_string();
+                        let new_name = if new_name.is_empty() { name.clone() } else { new_name };
+                        tokio::spawn({
+                            let channel_id_str = channel_id.to_string();
+                            async move {
+                                if let Err(e) = discord_api::rename_channel(&channel_id_str, &new_name).await {
+                                    tracing::warn!("Failed to rename channel: {}", e);
+                                }
+                            }
+                        });
+                    }
+
+                    false
+                } else {
+                    // Turn ON human mode
+                    channels.insert(channel_id);
+                    save_human_mode(&channels);
+
+                    // Add emoji to channel name
+                    if let Some(name) = &channel_name {
+                        let new_name = format!("🙋‍♂️{}", name);
+                        tokio::spawn({
+                            let channel_id_str = channel_id.to_string();
+                            async move {
+                                if let Err(e) = discord_api::rename_channel(&channel_id_str, &new_name).await {
+                                    tracing::warn!("Failed to rename channel: {}", e);
+                                }
+                            }
+                        });
+                    }
+
+                    true
+                };
+
+                let mode_msg = if is_human_mode {
+                    "🙋‍♂️ **Human mode ON** - Neywa will not respond in this channel.\nType `!human` again to turn off."
+                } else {
+                    "🤖 **Human mode OFF** - Neywa is back online in this channel."
                 };
                 let _ = msg.channel_id.say(&ctx.http, mode_msg).await;
             }
@@ -828,6 +946,13 @@ impl EventHandler for Handler {
                 }
             }
             return;
+        }
+
+        // Handle restart command
+        if content == "!restart" || content == "!재시작" {
+            let _ = msg.channel_id.say(&ctx.http, "🔄 Restarting Neywa...").await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            restart_after_update();
         }
 
         // Handle update command
@@ -1040,7 +1165,9 @@ impl EventHandler for Handler {
                         `longtext` - How to send long text\n\
                         `slash <cmd>` - Run Claude Code slash command\n\n\
                         **Text-only Commands:**\n\
-                        `!z` - Toggle Z mode (claude-z)\n\n\
+                        `!z` - Toggle Z mode (claude-z)\n\
+                        `!human` - Toggle human-only mode (Neywa stops responding)\n\
+                        `!restart` - Restart Neywa (fixes MCP/connection issues)\n\n\
                         Just type a message to chat with AI.",
                         VERSION
                     )
@@ -1464,6 +1591,7 @@ pub async fn run_bot() -> Result<()> {
         data.insert::<ZModeChannels>(Arc::new(RwLock::new(std::collections::HashSet::new())));
         data.insert::<MessageQueue>(Arc::new(RwLock::new(HashMap::new())));
         data.insert::<ProcessingChannels>(Arc::new(RwLock::new(HashMap::new())));
+        data.insert::<HumanModeChannels>(Arc::new(RwLock::new(load_human_mode())));
     }
 
     client.start().await.context("Discord client error")?;

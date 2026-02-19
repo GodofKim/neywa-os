@@ -83,6 +83,10 @@ if [ -x "$INSTALL_DIR/neywa" ]; then
     echo "    neywa service status       # Check status"
     echo "    neywa service uninstall    # Disable auto-start"
     echo ""
+    echo "  Discord commands:"
+    echo "    !human    # Toggle human-only mode (Neywa stops responding)"
+    echo "    !restart  # Restart Neywa (fixes MCP/connection issues)"
+    echo ""
 else
     echo "❌ Installation failed"
     exit 1

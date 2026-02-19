@@ -41,6 +41,8 @@ All through Discord DMs or channels.
 - **Auto Start** - Launch on login with `neywa service install`
 - **Sleep Prevention** - System stays awake for remote access (display can turn off)
 - **Z Mode** - Toggle between Claude (Anthropic API) and Claude-Z (z.ai API)
+- **Human Mode** - Mute Neywa per channel for human-only conversations
+- **Restart** - Restart Neywa via Discord to fix MCP/connection issues
 
 ## Installation
 
@@ -105,6 +107,8 @@ All commands work as both Discord slash commands (`/cmd`) and text commands (`!c
 | `/longtext` | How to send long text (over 2000 chars) |
 | `/slash <cmd>` | Run a Claude Code slash command (e.g., `/slash cost`) |
 | `!z` | Toggle Z mode (claude-z / claude) — text only |
+| `!human` | Toggle human-only mode (Neywa stops responding) — text only |
+| `!restart` | Restart Neywa (fixes MCP/connection issues) — text only |
 
 ### CLI Commands
 

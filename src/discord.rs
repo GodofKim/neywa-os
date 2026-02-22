@@ -667,7 +667,8 @@ impl EventHandler for Handler {
                 **Text-only Commands:**\n\
                 `!z` - Toggle Z mode (claude-z)\n\
                 `!human` - Toggle human-only mode (Neywa stops responding)\n\
-                `!restart` - Restart Neywa (fixes MCP/connection issues)\n\n\
+                `!run <cmd>` - Execute terminal command directly\n\
+                `!restart` - Reset all Claude sessions (fixes MCP/connection issues)\n\n\
                 Just type a message to chat with AI.",
                 VERSION
             );
@@ -717,6 +718,63 @@ impl EventHandler for Handler {
                 save_sessions(&sessions_map);
             }
             let _ = msg.channel_id.say(&ctx.http, "Session reset.").await;
+            return;
+        }
+
+        // Handle !run command - execute terminal command directly
+        if let Some(cmd) = content.strip_prefix("!run ") {
+            let cmd = cmd.trim();
+            if cmd.is_empty() {
+                let _ = msg.channel_id.say(&ctx.http, "Usage: `!run <command>`").await;
+                return;
+            }
+
+            tracing::info!("Executing terminal command: {}", cmd);
+            let _ = msg.channel_id.say(&ctx.http, format!("⏳ Running: `{}`", cmd)).await;
+
+            // Run command in spawn_blocking to avoid blocking the async runtime
+            let cmd_owned = cmd.to_string();
+            let output = tokio::task::spawn_blocking(move || {
+                Command::new("bash")
+                    .arg("-c")
+                    .arg(&cmd_owned)
+                    .output()
+            }).await;
+
+            let response = match output {
+                Ok(Ok(output)) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let exit_code = output.status.code().unwrap_or(-1);
+
+                    let mut result = String::new();
+                    if !stdout.is_empty() {
+                        result.push_str(&format!("**stdout:**\n```\n{}\n```", stdout));
+                    }
+                    if !stderr.is_empty() {
+                        if !result.is_empty() { result.push_str("\n"); }
+                        result.push_str(&format!("**stderr:**\n```\n{}\n```", stderr));
+                    }
+                    result.push_str(&format!("\n*Exit code: {}*", exit_code));
+
+                    if result.is_empty() {
+                        format!("✅ Done (exit code: {})", exit_code)
+                    } else {
+                        result
+                    }
+                }
+                Ok(Err(e)) => format!("❌ Failed to execute: {}", e),
+                Err(e) => format!("❌ Task error: {}", e),
+            };
+
+            // Discord has 2000 char limit, truncate if needed
+            let response = if response.len() > 1950 {
+                format!("{}...\n*(truncated)*", &response[..1900])
+            } else {
+                response
+            };
+
+            let _ = msg.channel_id.say(&ctx.http, response).await;
             return;
         }
 
@@ -948,11 +1006,63 @@ impl EventHandler for Handler {
             return;
         }
 
-        // Handle restart command
+        // Handle restart command - kills all Claude Code sessions and resets state
         if content == "!restart" || content == "!재시작" {
-            let _ = msg.channel_id.say(&ctx.http, "🔄 Restarting Neywa...").await;
+            let _ = msg.channel_id.say(&ctx.http, "🔄 Restarting all sessions...").await;
+
+            let data = ctx.data.read().await;
+            let mut cancelled_count = 0u32;
+            let mut cleared_count = 0u32;
+
+            // 1. Cancel all active processing (triggers CancellationToken)
+            if let Some(processing) = data.get::<ProcessingChannels>() {
+                let tokens = processing.read().await;
+                for (_ch, token) in tokens.iter() {
+                    token.cancel();
+                    cancelled_count += 1;
+                }
+            }
+
+            // 2. Clear all message queues
+            if let Some(queue) = data.get::<MessageQueue>() {
+                let mut q = queue.write().await;
+                for (_ch, channel_queue) in q.iter_mut() {
+                    cleared_count += channel_queue.len() as u32;
+                    channel_queue.clear();
+                }
+            }
+
+            // 3. Clear all session IDs (forces fresh Claude Code sessions)
+            if let Some(sessions) = data.get::<SessionStorage>() {
+                let mut sessions_map = sessions.write().await;
+                sessions_map.clear();
+                save_sessions(&sessions_map);
+            }
+
+            drop(data);
+
+            // 4. Kill any lingering claude/claude-z child processes
+            let _ = Command::new("pkill")
+                .arg("-f")
+                .arg("claude.*--dangerously-skip-permissions")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+
+            // Brief wait for processes to clean up
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            restart_after_update();
+
+            let _ = msg.channel_id.say(&ctx.http, format!(
+                "✅ Sessions restarted.\n\
+                 • Cancelled {} active task(s)\n\
+                 • Cleared {} queued message(s)\n\
+                 • All session history reset\n\
+                 • Claude Code processes terminated\n\n\
+                 Ready for new messages!",
+                cancelled_count, cleared_count
+            )).await;
+            return;
         }
 
         // Handle update command
@@ -1167,7 +1277,7 @@ impl EventHandler for Handler {
                         **Text-only Commands:**\n\
                         `!z` - Toggle Z mode (claude-z)\n\
                         `!human` - Toggle human-only mode (Neywa stops responding)\n\
-                        `!restart` - Restart Neywa (fixes MCP/connection issues)\n\n\
+                        `!restart` - Reset all Claude sessions (fixes MCP/connection issues)\n\n\
                         Just type a message to chat with AI.",
                         VERSION
                     )
@@ -1717,10 +1827,11 @@ async fn self_update() -> Result<()> {
     Ok(())
 }
 
-/// Restart Neywa after a successful self-update.
-/// Exits cleanly and relies on LaunchAgent KeepAlive + a delayed kickstart
-/// as insurance against launchd throttling.
+/// Restart Neywa by using launchctl kickstart -k to kill and immediately restart.
+/// This is more reliable than exit + KeepAlive because launchd handles the restart directly.
 fn restart_after_update() -> ! {
+    use std::os::unix::process::CommandExt;
+
     // Get UID via `id -u` (env vars may not be available under LaunchAgent)
     let uid = Command::new("id")
         .arg("-u")
@@ -1738,22 +1849,25 @@ fn restart_after_update() -> ! {
     if !uid.is_empty() {
         let target = format!("gui/{}/com.neywa.daemon", uid);
 
-        // Spawn a delayed kickstart as insurance against KeepAlive throttling.
-        // If KeepAlive restarts us first, the kickstart is a harmless no-op.
+        // Use process_group(0) to completely detach child from parent.
+        // This ensures the child survives even when parent exits.
+        // The script waits 2 seconds then uses kickstart -kp to restart.
         let script = format!(
-            "sleep 2; launchctl kickstart {} 2>/dev/null; exit 0",
-            target
+            "sleep 2; launchctl kickstart -kp {} 2>/dev/null || launchctl kickstart -k {} 2>/dev/null",
+            target, target
         );
         let _ = Command::new("bash")
-            .args(["-c", &script])
+            .arg("-c")
+            .arg(&script)
+            .process_group(0)  // Detach from parent process group
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
 
-        tracing::info!("Scheduled delayed kickstart for {}", target);
+        tracing::info!("Scheduled restart for {}", target);
     }
 
-    tracing::info!("Exiting for restart after update...");
+    tracing::info!("Exiting for restart...");
     std::process::exit(0);
 }

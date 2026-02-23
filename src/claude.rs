@@ -5,6 +5,24 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
+/// AI backend selection for each channel
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum AiBackend {
+    Claude,
+    ClaudeZ,
+    Codex,
+}
+
+impl AiBackend {
+    pub fn status_line(&self) -> &'static str {
+        match self {
+            AiBackend::Claude => "🤖 Normal mode (claude)",
+            AiBackend::ClaudeZ => "⚡ Z mode (claude-z)",
+            AiBackend::Codex => "֎ Codex mode (codex)",
+        }
+    }
+}
+
 /// System prompt for plan mode - injected into plan-only Claude Code calls
 const NEYWA_PLAN_SYSTEM_PROMPT: &str = r#"
 ## Neywa Plan Mode Guidelines
@@ -21,7 +39,7 @@ This is a non-interactive environment. You CANNOT get user input during executio
 "#;
 
 /// Neywa system prompt - injected into all Claude Code calls
-const NEYWA_SYSTEM_PROMPT: &str = r#"
+pub(crate) const NEYWA_SYSTEM_PROMPT: &str = r#"
 ## Neywa System Guidelines
 
 You are running through Neywa, a Discord-based AI assistant interface.
@@ -102,7 +120,7 @@ Use these commands proactively when needed:
 "#;
 
 /// Find CLI binary in common locations
-fn find_cli(name: &str) -> Option<PathBuf> {
+pub(crate) fn find_cli(name: &str) -> Option<PathBuf> {
     // First try which
     if let Ok(path) = which::which(name) {
         return Some(path);
@@ -311,7 +329,7 @@ fn format_tool_input(tool_name: &str, input: &serde_json::Value) -> String {
 }
 
 /// Truncate string for display
-fn truncate_str(s: &str, max_len: usize) -> String {
+pub(crate) fn truncate_str(s: &str, max_len: usize) -> String {
     if s.chars().count() <= max_len {
         s.to_string()
     } else {
@@ -321,7 +339,7 @@ fn truncate_str(s: &str, max_len: usize) -> String {
 }
 
 /// Shorten file path for display
-fn shorten_path(path: &str) -> &str {
+pub(crate) fn shorten_path(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 

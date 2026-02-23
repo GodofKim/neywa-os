@@ -81,6 +81,7 @@ struct QueuedMessage {
     content: String,
     attachment_paths: Vec<String>,
     channel_type: ChannelType,
+    is_plan_mode: bool,
 }
 
 type SessionKey = (u64, u64);
@@ -370,19 +371,31 @@ impl Handler {
             }
         };
 
-        // Run Claude Code with streaming
-        let mut rx = match claude::run_streaming(&full_prompt, existing_session.as_deref(), use_z).await {
-            Ok(rx) => rx,
-            Err(e) => {
-                let _ = msg.channel_id.say(&ctx.http, format!("❌ Error: {}", e)).await;
-                let _ = status_msg.delete(&ctx.http).await;
-                return;
+        // Run Claude Code with streaming (plan mode or normal)
+        let mut rx = if queued.is_plan_mode {
+            match claude::run_streaming_plan(&full_prompt, use_z).await {
+                Ok(rx) => rx,
+                Err(e) => {
+                    let _ = msg.channel_id.say(&ctx.http, format!("❌ Error: {}", e)).await;
+                    let _ = status_msg.delete(&ctx.http).await;
+                    return;
+                }
+            }
+        } else {
+            match claude::run_streaming(&full_prompt, existing_session.as_deref(), use_z).await {
+                Ok(rx) => rx,
+                Err(e) => {
+                    let _ = msg.channel_id.say(&ctx.http, format!("❌ Error: {}", e)).await;
+                    let _ = status_msg.delete(&ctx.http).await;
+                    return;
+                }
             }
         };
 
         // Process stream events with cancellation support
         let mut final_text = String::new();
         let mut new_session_id: Option<String> = None;
+        let mut plan_content: Option<String> = None;
         let mut status_lines: Vec<String> = vec!["⏳ Processing...".to_string()];
         let mut last_update = Instant::now();
         let update_interval = Duration::from_millis(800);
@@ -416,6 +429,12 @@ impl Handler {
                         Some(StreamEvent::Text(text)) => {
                             final_text = text;
                         }
+                        Some(StreamEvent::PlanContent(_path, content)) => {
+                            // Keep the longest plan content (may get multiple events)
+                            if plan_content.as_ref().map_or(true, |existing| content.len() > existing.len()) {
+                                plan_content = Some(content);
+                            }
+                        }
                         Some(StreamEvent::SessionId(sid)) => {
                             new_session_id = Some(sid);
                         }
@@ -437,6 +456,31 @@ impl Handler {
 
         if was_cancelled {
             let _ = msg.channel_id.say(&ctx.http, "🛑 Cancelled.").await;
+            return;
+        }
+
+        // Handle plan mode response separately
+        if queued.is_plan_mode {
+            // Use plan_content if text response is empty (common due to ExitPlanMode denial)
+            let response_text = if !final_text.is_empty() && !final_text.trim().is_empty() {
+                // If we have both, prefer the longer/more complete one
+                if let Some(ref plan) = plan_content {
+                    if plan.len() > final_text.len() { plan.clone() } else { final_text.clone() }
+                } else {
+                    final_text.clone()
+                }
+            } else {
+                plan_content.unwrap_or_else(|| "(No plan generated)".to_string())
+            };
+
+            let full_response = format!("📐 **Plan**\n\n{}", response_text);
+            let chunks = split_for_discord(&full_response);
+            for chunk in chunks {
+                let _ = msg.channel_id.say(&ctx.http, &chunk).await;
+            }
+
+            let _ = msg.channel_id.say(&ctx.http, format!("{} ✅ Plan ready!", user_mention)).await;
+            log_activity(ctx, &msg.author.name, channel_type, content, &response_text).await;
             return;
         }
 
@@ -665,6 +709,7 @@ impl EventHandler for Handler {
                 `longtext` - How to send long text\n\
                 `slash <cmd>` - Run Claude Code slash command\n\n\
                 **Text-only Commands:**\n\
+                `!plan <msg>` - Generate a plan without executing (read-only)\n\
                 `!z` - Toggle Z mode (claude-z)\n\
                 `!human` - Toggle human-only mode (Neywa stops responding)\n\
                 `!run <cmd>` - Execute terminal command directly\n\
@@ -1006,6 +1051,75 @@ impl EventHandler for Handler {
             return;
         }
 
+        // Handle plan command - run Claude in plan-only mode
+        if content.starts_with("!plan ") || content.starts_with("!계획 ") {
+            let plan_msg = content
+                .strip_prefix("!plan ")
+                .or_else(|| content.strip_prefix("!계획 "))
+                .unwrap_or("")
+                .trim()
+                .to_string();
+
+            if plan_msg.is_empty() {
+                let _ = msg.channel_id.say(&ctx.http, "Usage: `!plan <request>`").await;
+                return;
+            }
+
+            let queued = QueuedMessage {
+                msg: msg.clone(),
+                content: plan_msg,
+                attachment_paths,
+                channel_type,
+                is_plan_mode: true,
+            };
+
+            // Use same queue/processing logic as normal messages
+            let is_processing = {
+                let data = ctx.data.read().await;
+                if let Some(processing) = data.get::<ProcessingChannels>() {
+                    processing.read().await.contains_key(&channel_id)
+                } else {
+                    false
+                }
+            };
+
+            if is_processing {
+                let queue_pos = {
+                    let data = ctx.data.read().await;
+                    if let Some(queue) = data.get::<MessageQueue>() {
+                        let mut q = queue.write().await;
+                        let channel_queue = q.entry(channel_id).or_insert_with(VecDeque::new);
+                        channel_queue.push_back(queued);
+                        channel_queue.len()
+                    } else {
+                        0
+                    }
+                };
+                let _ = msg.channel_id.say(&ctx.http, format!("📬 Queued (#{} in line)", queue_pos)).await;
+            } else {
+                let cancel_token = CancellationToken::new();
+                {
+                    let data = ctx.data.read().await;
+                    if let Some(processing) = data.get::<ProcessingChannels>() {
+                        processing.write().await.insert(channel_id, cancel_token.clone());
+                    }
+                }
+
+                let ctx_clone = ctx.clone();
+                tokio::spawn(async move {
+                    Self::process_message(&ctx_clone, queued, cancel_token).await;
+                    {
+                        let data = ctx_clone.data.read().await;
+                        if let Some(processing) = data.get::<ProcessingChannels>() {
+                            processing.write().await.remove(&channel_id);
+                        }
+                    }
+                    Self::process_queue(ctx_clone, channel_id).await;
+                });
+            }
+            return;
+        }
+
         // Handle restart command - kills all Claude Code sessions and resets state
         if content == "!restart" || content == "!재시작" {
             let _ = msg.channel_id.say(&ctx.http, "🔄 Restarting all sessions...").await;
@@ -1118,6 +1232,7 @@ impl EventHandler for Handler {
             content,
             attachment_paths,
             channel_type,
+            is_plan_mode: false,
         };
 
         // Check if channel is currently processing
@@ -1275,6 +1390,7 @@ impl EventHandler for Handler {
                         `longtext` - How to send long text\n\
                         `slash <cmd>` - Run Claude Code slash command\n\n\
                         **Text-only Commands:**\n\
+                        `!plan <msg>` - Generate a plan without executing (read-only)\n\
                         `!z` - Toggle Z mode (claude-z)\n\
                         `!human` - Toggle human-only mode (Neywa stops responding)\n\
                         `!restart` - Reset all Claude sessions (fixes MCP/connection issues)\n\n\

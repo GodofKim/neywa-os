@@ -5,6 +5,21 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
+/// System prompt for plan mode - injected into plan-only Claude Code calls
+const NEYWA_PLAN_SYSTEM_PROMPT: &str = r#"
+## Neywa Plan Mode Guidelines
+
+You are running through Neywa in PLAN MODE, a Discord-based AI assistant interface.
+This is a non-interactive environment. You CANNOT get user input during execution.
+
+### Important Rules:
+- Explore the codebase thoroughly using Read, Glob, Grep, and Bash (read-only commands)
+- Write your complete plan to the plan file
+- Your text response will be sent to the user in Discord
+- Keep your text response as a concise summary of the plan
+- Write detailed implementation steps in the plan file, put a summary in your text response
+"#;
+
 /// Neywa system prompt - injected into all Claude Code calls
 const NEYWA_SYSTEM_PROMPT: &str = r#"
 ## Neywa System Guidelines
@@ -136,6 +151,20 @@ fn base_command(use_z: bool) -> Command {
     let mut cmd = Command::new(&cmd_path);
     cmd.arg("--dangerously-skip-permissions");
     cmd.arg("--append-system-prompt").arg(NEYWA_SYSTEM_PROMPT);
+    cmd
+}
+
+/// Command for plan mode (no --dangerously-skip-permissions, uses --permission-mode plan)
+fn plan_command(use_z: bool) -> Command {
+    let cli_name = if use_z { "claude-z" } else { "claude" };
+
+    let cmd_path = find_cli(cli_name)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| cli_name.to_string());
+
+    let mut cmd = Command::new(&cmd_path);
+    cmd.arg("--permission-mode").arg("plan");
+    cmd.arg("--append-system-prompt").arg(NEYWA_PLAN_SYSTEM_PROMPT);
     cmd
 }
 
@@ -305,6 +334,8 @@ pub enum StreamEvent {
     SessionId(String),
     /// Tool being used (name, brief description)
     ToolUse(String, String),
+    /// Plan file written (file_path, content)
+    PlanContent(String, String),
     /// Processing complete
     Done,
     /// Error occurred
@@ -436,6 +467,152 @@ pub async fn run_streaming(
         let _ = child.wait().await;
 
         // Send done if not already sent
+        let _ = tx.send(StreamEvent::Done).await;
+    });
+
+    Ok(rx)
+}
+
+/// Run Claude Code in plan mode with streaming output
+/// Uses --permission-mode plan instead of --dangerously-skip-permissions
+pub async fn run_streaming_plan(
+    message: &str,
+    use_z: bool,
+) -> Result<mpsc::Receiver<StreamEvent>> {
+    let cli_path = verify_cli(use_z)?;
+    let cli_name = cli_path.to_string_lossy();
+
+    let (tx, rx) = mpsc::channel(100);
+
+    let mut cmd = plan_command(use_z);
+
+    cmd.arg("--verbose")
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--print")
+        .arg(message)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().context(format!("Failed to spawn {} (plan mode)", cli_name))?;
+
+    let stdout = child.stdout.take().context("Failed to get stdout")?;
+    let stderr = child.stderr.take().context("Failed to get stderr")?;
+
+    // Spawn stderr reader
+    let stderr_tx = tx.clone();
+    tokio::spawn(async move {
+        let reader = BufReader::new(stderr);
+        let mut lines = reader.lines();
+        let mut stderr_buf = String::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            stderr_buf.push_str(&line);
+            stderr_buf.push('\n');
+        }
+        if !stderr_buf.is_empty() {
+            let lower = stderr_buf.to_lowercase();
+            if lower.contains("prompt is too long") || lower.contains("context window") || lower.contains("too many tokens") {
+                let _ = stderr_tx.send(StreamEvent::Text("Prompt is too long".to_string())).await;
+                let _ = stderr_tx.send(StreamEvent::Done).await;
+            }
+        }
+    });
+
+    // Spawn stdout reader - enhanced to capture plan file writes
+    tokio::spawn(async move {
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+        let mut full_text = String::new();
+        let mut session_id_sent = false;
+
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                // Extract session_id
+                if !session_id_sent {
+                    if let Some(sid) = json.get("session_id").and_then(|v| v.as_str()) {
+                        let _ = tx.send(StreamEvent::SessionId(sid.to_string())).await;
+                        session_id_sent = true;
+                    }
+                }
+
+                if let Some(event_type) = json.get("type").and_then(|v| v.as_str()) {
+                    match event_type {
+                        "assistant" => {
+                            if let Some(message) = json.get("message") {
+                                if let Some(content) = message.get("content") {
+                                    if let Some(arr) = content.as_array() {
+                                        for item in arr {
+                                            if let Some(item_type) = item.get("type").and_then(|v| v.as_str()) {
+                                                if item_type == "tool_use" {
+                                                    let tool_name = item.get("name")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("unknown");
+
+                                                    // Capture Write to plan file
+                                                    if tool_name == "Write" {
+                                                        if let Some(input) = item.get("input") {
+                                                            let file_path = input.get("file_path")
+                                                                .and_then(|v| v.as_str())
+                                                                .unwrap_or("");
+                                                            if file_path.contains("/.claude/plans/") {
+                                                                let plan_content = input.get("content")
+                                                                    .and_then(|v| v.as_str())
+                                                                    .unwrap_or("");
+                                                                if !plan_content.is_empty() {
+                                                                    let _ = tx.send(StreamEvent::PlanContent(
+                                                                        file_path.to_string(),
+                                                                        plan_content.to_string(),
+                                                                    )).await;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    // Capture ExitPlanMode plan content as fallback
+                                                    if tool_name == "ExitPlanMode" {
+                                                        // ExitPlanMode reads from the plan file, content may be in allowedPrompts or other fields
+                                                        // The plan file was already captured via Write above
+                                                    }
+
+                                                    let input_str = item.get("input")
+                                                        .map(|v| format_tool_input(tool_name, v))
+                                                        .unwrap_or_default();
+                                                    let _ = tx.send(StreamEvent::ToolUse(
+                                                        tool_name.to_string(),
+                                                        input_str,
+                                                    )).await;
+                                                } else if item_type == "text" {
+                                                    if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+                                                        if !full_text.is_empty() {
+                                                            full_text.push_str("\n");
+                                                        }
+                                                        full_text.push_str(text);
+                                                        let _ = tx.send(StreamEvent::Text(full_text.clone())).await;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        "result" => {
+                            // In plan mode, result may be empty due to ExitPlanMode denial
+                            if let Some(result) = json.get("result").and_then(|v| v.as_str()) {
+                                if !result.is_empty() {
+                                    full_text = result.to_string();
+                                    let _ = tx.send(StreamEvent::Text(full_text.clone())).await;
+                                }
+                            }
+                            let _ = tx.send(StreamEvent::Done).await;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let _ = child.wait().await;
         let _ = tx.send(StreamEvent::Done).await;
     });
 

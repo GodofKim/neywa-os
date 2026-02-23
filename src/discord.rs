@@ -948,9 +948,9 @@ impl EventHandler for Handler {
                     // Turn OFF codex mode
                     map.remove(&channel_id);
 
-                    // Remove ֎ emoji from channel name
+                    // Remove 🅾️ emoji from channel name
                     if let Some(name) = &channel_name {
-                        let new_name = name.trim_start_matches('֎').trim_start_matches('-').to_string();
+                        let new_name = name.trim_start_matches("🅾️").trim_start_matches('-').to_string();
                         let new_name = if new_name.is_empty() { name.clone() } else { new_name };
                         tokio::spawn({
                             let channel_id_str = channel_id.to_string();
@@ -966,11 +966,11 @@ impl EventHandler for Handler {
                     // Turn ON codex mode
                     map.insert(channel_id, AiBackend::Codex);
 
-                    // Add ֎ emoji to channel name
+                    // Add 🅾️ emoji to channel name
                     if let Some(name) = &channel_name {
                         // Remove any existing mode emoji first
-                        let clean_name = name.trim_start_matches('֎').trim_start_matches('-').to_string();
-                        let new_name = format!("֎{}", clean_name);
+                        let clean_name = name.trim_start_matches("🅾️").trim_start_matches('-').to_string();
+                        let new_name = format!("🅾️{}", clean_name);
                         tokio::spawn({
                             let channel_id_str = channel_id.to_string();
                             async move {
@@ -992,7 +992,7 @@ impl EventHandler for Handler {
                 }
 
                 let mode_msg = if is_codex {
-                    "֎ **Codex mode ON** - Using OpenAI Codex CLI in this channel"
+                    "🅾️ **Codex mode ON** - Using OpenAI Codex CLI in this channel"
                 } else {
                     "🔄 **Normal mode** - Using `claude` (Anthropic API) in this channel"
                 };

@@ -18,7 +18,7 @@ impl AiBackend {
         match self {
             AiBackend::Claude => "🤖 Normal mode (claude)",
             AiBackend::ClaudeZ => "⚡ Z mode (claude-z)",
-            AiBackend::Codex => "֎ Codex mode (codex)",
+            AiBackend::Codex => "🅾️ Codex mode (codex)",
         }
     }
 }

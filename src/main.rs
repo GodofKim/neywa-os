@@ -1,5 +1,6 @@
 mod cli;
 mod claude;
+mod codex;
 mod config;
 mod discord;
 mod discord_api;

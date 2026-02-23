@@ -1297,21 +1297,28 @@ impl EventHandler for Handler {
         // Check for pending update notification
         if let Some((channel_id, old_version, new_version)) = load_update_pending() {
             tracing::info!("Found pending update notification: {} -> {}", old_version, new_version);
-            let channel = serenity::model::id::ChannelId::new(channel_id);
 
-            // Verify that update actually happened
-            if VERSION == new_version {
-                let msg = format!("🎉 **Update complete!**\nv{} → v{}", old_version, new_version);
-                if let Err(e) = channel.say(&ctx.http, &msg).await {
-                    tracing::error!("Failed to send update notification: {}", e);
+            // Send notification in a spawned task with a small delay
+            // to ensure Discord connection is fully established
+            let http = ctx.http.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+                let channel = serenity::model::id::ChannelId::new(channel_id);
+                if VERSION == new_version {
+                    let msg = format!("🎉 **Update complete!**\nv{} → v{}", old_version, new_version);
+                    if let Err(e) = channel.say(&http, &msg).await {
+                        tracing::error!("Failed to send update notification: {}", e);
+                    } else {
+                        tracing::info!("Update notification sent successfully");
+                    }
+                } else {
+                    let msg = format!("⚠️ Update may have failed. Current version: v{}, expected: v{}", VERSION, new_version);
+                    if let Err(e) = channel.say(&http, &msg).await {
+                        tracing::error!("Failed to send update warning: {}", e);
+                    }
                 }
-            } else {
-                // Version mismatch - update may have failed
-                let msg = format!("⚠️ Update may have failed. Current version: v{}, expected: v{}", VERSION, new_version);
-                if let Err(e) = channel.say(&ctx.http, &msg).await {
-                    tracing::error!("Failed to send update warning: {}", e);
-                }
-            }
+            });
         }
 
         // Register slash commands globally
@@ -1943,47 +1950,10 @@ async fn self_update() -> Result<()> {
     Ok(())
 }
 
-/// Restart Neywa by using launchctl kickstart -k to kill and immediately restart.
-/// This is more reliable than exit + KeepAlive because launchd handles the restart directly.
+/// Restart Neywa after update.
+/// Simply exits - LaunchAgent's KeepAlive=true will automatically restart the process.
+/// No manual kickstart needed, which avoids the double-restart race condition.
 fn restart_after_update() -> ! {
-    use std::os::unix::process::CommandExt;
-
-    // Get UID via `id -u` (env vars may not be available under LaunchAgent)
-    let uid = Command::new("id")
-        .arg("-u")
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default();
-
-    if !uid.is_empty() {
-        let target = format!("gui/{}/com.neywa.daemon", uid);
-
-        // Use process_group(0) to completely detach child from parent.
-        // This ensures the child survives even when parent exits.
-        // The script waits 2 seconds then uses kickstart -kp to restart.
-        let script = format!(
-            "sleep 2; launchctl kickstart -kp {} 2>/dev/null || launchctl kickstart -k {} 2>/dev/null",
-            target, target
-        );
-        let _ = Command::new("bash")
-            .arg("-c")
-            .arg(&script)
-            .process_group(0)  // Detach from parent process group
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
-
-        tracing::info!("Scheduled restart for {}", target);
-    }
-
-    tracing::info!("Exiting for restart...");
+    tracing::info!("Exiting for restart (KeepAlive will auto-restart)...");
     std::process::exit(0);
 }

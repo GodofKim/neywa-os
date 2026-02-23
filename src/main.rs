@@ -27,10 +27,18 @@ fn pid_file_path() -> Result<PathBuf> {
 /// Kill existing neywa daemon if running
 fn kill_existing_daemon() -> Result<()> {
     let pid_path = pid_file_path()?;
+    let current_pid = std::process::id();
 
     if pid_path.exists() {
         if let Ok(pid_str) = fs::read_to_string(&pid_path) {
             if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                // Skip if the PID matches our own (happens after exec-based restart)
+                if pid == current_pid {
+                    tracing::info!("PID file contains our own PID ({}), skipping kill", pid);
+                    let _ = fs::remove_file(&pid_path);
+                    return Ok(());
+                }
+
                 let mut sys = System::new();
                 sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
 

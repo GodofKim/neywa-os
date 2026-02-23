@@ -1296,27 +1296,30 @@ impl EventHandler for Handler {
 
         // Check for pending update notification
         if let Some((channel_id, old_version, new_version)) = load_update_pending() {
-            tracing::info!("Found pending update notification: {} -> {}", old_version, new_version);
+            tracing::info!(
+                "Pending update: {} -> {} (running: v{})",
+                old_version, new_version, VERSION
+            );
 
-            // Send notification in a spawned task with a small delay
-            // to ensure Discord connection is fully established
             let http = ctx.http.clone();
             tokio::spawn(async move {
-                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                // Wait for Discord connection to stabilize
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
                 let channel = serenity::model::id::ChannelId::new(channel_id);
-                if VERSION == new_version {
-                    let msg = format!("🎉 **Update complete!**\nv{} → v{}", old_version, new_version);
-                    if let Err(e) = channel.say(&http, &msg).await {
-                        tracing::error!("Failed to send update notification: {}", e);
-                    } else {
-                        tracing::info!("Update notification sent successfully");
-                    }
+                let msg = if VERSION == new_version {
+                    format!("🎉 **Update complete!** v{} → v{}", old_version, new_version)
                 } else {
-                    let msg = format!("⚠️ Update may have failed. Current version: v{}, expected: v{}", VERSION, new_version);
-                    if let Err(e) = channel.say(&http, &msg).await {
-                        tracing::error!("Failed to send update warning: {}", e);
-                    }
+                    format!(
+                        "⚠️ Update done. Expected v{}, running v{}",
+                        new_version, VERSION
+                    )
+                };
+
+                tracing::info!("Sending update notification to channel {}...", channel_id);
+                match channel.say(&http, &msg).await {
+                    Ok(_) => tracing::info!("Update notification sent"),
+                    Err(e) => tracing::error!("Failed to send update notification: {}", e),
                 }
             });
         }
@@ -1936,12 +1939,19 @@ async fn self_update() -> Result<()> {
         .context("Failed to replace binary")?;
 
     // Also update the .app bundle binary (preserves FDA permissions)
+    // Skip if current_exe IS the app binary (self-copy truncates to 0 bytes!)
     let app_binary = std::path::PathBuf::from("/Applications/Neywa.app/Contents/MacOS/neywa");
     if app_binary.exists() {
-        if let Err(e) = std::fs::copy(&current_exe, &app_binary) {
-            tracing::warn!("Failed to update Neywa.app binary: {}", e);
+        let is_same = std::fs::canonicalize(&current_exe).ok()
+            == std::fs::canonicalize(&app_binary).ok();
+        if !is_same {
+            if let Err(e) = std::fs::copy(&current_exe, &app_binary) {
+                tracing::warn!("Failed to update Neywa.app binary: {}", e);
+            } else {
+                tracing::info!("Updated Neywa.app binary");
+            }
         } else {
-            tracing::info!("Updated Neywa.app binary");
+            tracing::info!("Binary already at app bundle path, skipping copy");
         }
     }
 
@@ -1951,9 +1961,24 @@ async fn self_update() -> Result<()> {
 }
 
 /// Restart Neywa after update.
-/// Simply exits - LaunchAgent's KeepAlive=true will automatically restart the process.
-/// No manual kickstart needed, which avoids the double-restart race condition.
+/// Uses _exit(0) to bypass atexit handlers (tray cleanup etc.) that may hang.
+/// LaunchAgent's KeepAlive=true will auto-restart the process within ThrottleInterval.
+/// Note: exec() doesn't work on macOS because replacing the binary invalidates the
+/// code signature, causing SIGKILL from the kernel.
 fn restart_after_update() -> ! {
-    tracing::info!("Exiting for restart (KeepAlive will auto-restart)...");
-    std::process::exit(0);
+    tracing::info!("Exiting for KeepAlive restart...");
+
+    // Safety net: if _exit somehow doesn't work, force kill after 5 seconds
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        std::process::exit(1);
+    });
+
+    // Use _exit(0) to terminate immediately without running atexit handlers.
+    // This avoids potential hangs from tray/NSApplication cleanup.
+    // KeepAlive=true in LaunchAgent will restart us automatically.
+    extern "C" {
+        fn _exit(status: i32) -> !;
+    }
+    unsafe { _exit(0) }
 }

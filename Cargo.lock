@@ -1610,7 +1610,7 @@ dependencies = [
 
 [[package]]
 name = "neywa"
-version = "0.3.13"
+version = "0.3.21"
 dependencies = [
  "anyhow",
  "async-trait",

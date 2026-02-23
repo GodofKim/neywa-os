@@ -1,4 +1,5 @@
-use crate::claude::{self, StreamEvent};
+use crate::claude::{self, AiBackend, StreamEvent};
+use crate::codex;
 use crate::config::Config;
 use crate::discord_api;
 use anyhow::{Context, Result};
@@ -245,10 +246,10 @@ impl TypeMapKey for LogsChannel {
     type Value = Arc<RwLock<Option<serenity::model::id::ChannelId>>>;
 }
 
-/// Channels using Z mode (claude-z instead of claude)
-struct ZModeChannels;
-impl TypeMapKey for ZModeChannels {
-    type Value = Arc<RwLock<std::collections::HashSet<u64>>>;
+/// Per-channel AI backend selection
+struct ChannelBackends;
+impl TypeMapKey for ChannelBackends {
+    type Value = Arc<RwLock<HashMap<u64, AiBackend>>>;
 }
 
 /// Message queue per channel
@@ -297,6 +298,52 @@ fn save_human_mode(channels: &std::collections::HashSet<u64>) {
     }
     if let Ok(json) = serde_json::to_string(channels) {
         let _ = std::fs::write(&path, json);
+    }
+}
+
+/// Path for storing channel backend selections
+fn channel_backends_file_path() -> std::path::PathBuf {
+    let config_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("neywa");
+    config_dir.join("channel_backends.json")
+}
+
+/// Load channel backends from file
+fn load_channel_backends() -> HashMap<u64, AiBackend> {
+    let path = channel_backends_file_path();
+    if !path.exists() {
+        return HashMap::new();
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => HashMap::new(),
+    }
+}
+
+/// Save channel backends to file
+fn save_channel_backends(backends: &HashMap<u64, AiBackend>) {
+    let path = channel_backends_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string(backends) {
+        let _ = std::fs::write(&path, json);
+    }
+}
+
+/// Helper to get the current backend for a channel
+async fn get_channel_backend(ctx: &serenity::client::Context, channel_id: u64) -> AiBackend {
+    let data = ctx.data.read().await;
+    if let Some(backends) = data.get::<ChannelBackends>() {
+        backends
+            .read()
+            .await
+            .get(&channel_id)
+            .copied()
+            .unwrap_or(AiBackend::Claude)
+    } else {
+        AiBackend::Claude
     }
 }
 
@@ -361,18 +408,12 @@ impl Handler {
             )
         };
 
-        // Check if channel is in Z mode
-        let use_z = {
-            let data = ctx.data.read().await;
-            if let Some(z_channels) = data.get::<ZModeChannels>() {
-                z_channels.read().await.contains(&channel_id)
-            } else {
-                false
-            }
-        };
+        // Get the AI backend for this channel
+        let backend = get_channel_backend(ctx, channel_id).await;
 
-        // Run Claude Code with streaming (plan mode or normal)
+        // Run AI backend with streaming (plan mode or normal)
         let mut rx = if queued.is_plan_mode {
+            let use_z = backend == AiBackend::ClaudeZ;
             match claude::run_streaming_plan(&full_prompt, use_z).await {
                 Ok(rx) => rx,
                 Err(e) => {
@@ -382,12 +423,27 @@ impl Handler {
                 }
             }
         } else {
-            match claude::run_streaming(&full_prompt, existing_session.as_deref(), use_z).await {
-                Ok(rx) => rx,
-                Err(e) => {
-                    let _ = msg.channel_id.say(&ctx.http, format!("❌ Error: {}", e)).await;
-                    let _ = status_msg.delete(&ctx.http).await;
-                    return;
+            match backend {
+                AiBackend::Codex => {
+                    match codex::run_streaming(&full_prompt, existing_session.as_deref()).await {
+                        Ok(rx) => rx,
+                        Err(e) => {
+                            let _ = msg.channel_id.say(&ctx.http, format!("❌ Error: {}", e)).await;
+                            let _ = status_msg.delete(&ctx.http).await;
+                            return;
+                        }
+                    }
+                }
+                _ => {
+                    let use_z = backend == AiBackend::ClaudeZ;
+                    match claude::run_streaming(&full_prompt, existing_session.as_deref(), use_z).await {
+                        Ok(rx) => rx,
+                        Err(e) => {
+                            let _ = msg.channel_id.say(&ctx.http, format!("❌ Error: {}", e)).await;
+                            let _ = status_msg.delete(&ctx.http).await;
+                            return;
+                        }
+                    }
                 }
             }
         };
@@ -505,6 +561,19 @@ impl Handler {
         if lower_text.contains("prompt is too long") || lower_text.contains("context window") || lower_text.contains("too many tokens") {
             let session_to_compact = new_session_id.as_deref().or(existing_session.as_deref());
             if let Some(sid) = session_to_compact {
+                // Codex mode: can't compact, reset session
+                if backend == AiBackend::Codex {
+                    let data = ctx.data.read().await;
+                    if let Some(sessions) = data.get::<SessionStorage>() {
+                        let mut sessions_map = sessions.write().await;
+                        sessions_map.remove(&session_key);
+                        save_sessions(&sessions_map);
+                    }
+                    let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window exceeded. 새 세션으로 시작합니다. 메시지를 다시 보내주세요.").await;
+                    return;
+                }
+
+                let use_z = backend == AiBackend::ClaudeZ;
                 let _ = msg.channel_id.say(&ctx.http, "⚠️ Context window full. Compacting session...").await;
 
                 // Run /compact on the session
@@ -711,6 +780,7 @@ impl EventHandler for Handler {
                 **Text-only Commands:**\n\
                 `!plan <msg>` - Generate a plan without executing (read-only)\n\
                 `!z` - Toggle Z mode (claude-z)\n\
+                `!codex` - Toggle Codex mode (OpenAI Codex CLI)\n\
                 `!human` - Toggle human-only mode (Neywa stops responding)\n\
                 `!run <cmd>` - Execute terminal command directly\n\
                 `!restart` - Reset all Claude sessions (fixes MCP/connection issues)\n\n\
@@ -826,15 +896,18 @@ impl EventHandler for Handler {
         // Handle Z mode toggle command
         if content == "!z" {
             let data = ctx.data.read().await;
-            if let Some(z_channels) = data.get::<ZModeChannels>() {
-                let mut channels = z_channels.write().await;
-                let is_z_mode = if channels.contains(&channel_id) {
-                    channels.remove(&channel_id);
+            if let Some(backends) = data.get::<ChannelBackends>() {
+                let mut map = backends.write().await;
+                let current = map.get(&channel_id).copied().unwrap_or(AiBackend::Claude);
+
+                let is_z_mode = if current == AiBackend::ClaudeZ {
+                    map.remove(&channel_id);
                     false
                 } else {
-                    channels.insert(channel_id);
+                    map.insert(channel_id, AiBackend::ClaudeZ);
                     true
                 };
+                save_channel_backends(&map);
 
                 if let Some(sessions) = data.get::<SessionStorage>() {
                     let mut sessions_map = sessions.write().await;
@@ -844,6 +917,82 @@ impl EventHandler for Handler {
 
                 let mode_msg = if is_z_mode {
                     "⚡ **Z mode ON** - Using `claude-z` (z.ai API) in this channel"
+                } else {
+                    "🔄 **Normal mode** - Using `claude` (Anthropic API) in this channel"
+                };
+                let _ = msg.channel_id.say(&ctx.http, mode_msg).await;
+            }
+            return;
+        }
+
+        // Handle Codex mode toggle command
+        if content == "!codex" {
+            // Check if codex CLI is available
+            if claude::find_cli("codex").is_none() {
+                let _ = msg.channel_id.say(&ctx.http, "❌ codex CLI not found. Install: `npm install -g @openai/codex`").await;
+                return;
+            }
+
+            let channel_name = if let Ok(channel) = msg.channel_id.to_channel(&ctx.http).await {
+                channel.guild().map(|gc| gc.name.clone())
+            } else {
+                None
+            };
+
+            let data = ctx.data.read().await;
+            if let Some(backends) = data.get::<ChannelBackends>() {
+                let mut map = backends.write().await;
+                let current = map.get(&channel_id).copied().unwrap_or(AiBackend::Claude);
+
+                let is_codex = if current == AiBackend::Codex {
+                    // Turn OFF codex mode
+                    map.remove(&channel_id);
+
+                    // Remove ֎ emoji from channel name
+                    if let Some(name) = &channel_name {
+                        let new_name = name.trim_start_matches('֎').trim_start_matches('-').to_string();
+                        let new_name = if new_name.is_empty() { name.clone() } else { new_name };
+                        tokio::spawn({
+                            let channel_id_str = channel_id.to_string();
+                            async move {
+                                if let Err(e) = discord_api::rename_channel(&channel_id_str, &new_name).await {
+                                    tracing::warn!("Failed to rename channel: {}", e);
+                                }
+                            }
+                        });
+                    }
+                    false
+                } else {
+                    // Turn ON codex mode
+                    map.insert(channel_id, AiBackend::Codex);
+
+                    // Add ֎ emoji to channel name
+                    if let Some(name) = &channel_name {
+                        // Remove any existing mode emoji first
+                        let clean_name = name.trim_start_matches('֎').trim_start_matches('-').to_string();
+                        let new_name = format!("֎{}", clean_name);
+                        tokio::spawn({
+                            let channel_id_str = channel_id.to_string();
+                            async move {
+                                if let Err(e) = discord_api::rename_channel(&channel_id_str, &new_name).await {
+                                    tracing::warn!("Failed to rename channel: {}", e);
+                                }
+                            }
+                        });
+                    }
+                    true
+                };
+                save_channel_backends(&map);
+
+                // Reset session on mode change
+                if let Some(sessions) = data.get::<SessionStorage>() {
+                    let mut sessions_map = sessions.write().await;
+                    sessions_map.remove(&session_key);
+                    save_sessions(&sessions_map);
+                }
+
+                let mode_msg = if is_codex {
+                    "֎ **Codex mode ON** - Using OpenAI Codex CLI in this channel"
                 } else {
                     "🔄 **Normal mode** - Using `claude` (Anthropic API) in this channel"
                 };
@@ -917,10 +1066,10 @@ impl EventHandler for Handler {
         // Handle status command
         if content == "!status" || content == "!상태" {
             let data = ctx.data.read().await;
-            let is_z_mode = if let Some(z_channels) = data.get::<ZModeChannels>() {
-                z_channels.read().await.contains(&channel_id)
+            let backend = if let Some(backends) = data.get::<ChannelBackends>() {
+                backends.read().await.get(&channel_id).copied().unwrap_or(AiBackend::Claude)
             } else {
-                false
+                AiBackend::Claude
             };
             let is_processing = if let Some(processing) = data.get::<ProcessingChannels>() {
                 processing.read().await.contains_key(&channel_id)
@@ -933,7 +1082,7 @@ impl EventHandler for Handler {
                 0
             };
 
-            let mode = if is_z_mode { "⚡ Z mode (claude-z)" } else { "🤖 Normal mode (claude)" };
+            let mode = backend.status_line();
             let processing_status = if is_processing { "🔄 Processing" } else { "✅ Idle" };
             let queue_status = if queue_size > 0 { format!("📬 Queue: {}", queue_size) } else { "📭 Queue: empty".to_string() };
 
@@ -968,6 +1117,12 @@ impl EventHandler for Handler {
 
         // Handle compact command
         if content == "!compact" {
+            let current_backend = get_channel_backend(&ctx, channel_id).await;
+            if current_backend == AiBackend::Codex {
+                let _ = msg.channel_id.say(&ctx.http, "⚠️ Codex 모드에서는 compact를 지원하지 않습니다. `!new`로 새 세션을 시작하세요.").await;
+                return;
+            }
+
             let existing_session = {
                 let data = ctx.data.read().await;
                 if let Some(sessions) = data.get::<SessionStorage>() {
@@ -980,14 +1135,7 @@ impl EventHandler for Handler {
             if let Some(sid) = existing_session {
                 let _ = msg.channel_id.say(&ctx.http, "🗜️ Compacting session...").await;
 
-                let use_z = {
-                    let data = ctx.data.read().await;
-                    if let Some(z_channels) = data.get::<ZModeChannels>() {
-                        z_channels.read().await.contains(&channel_id)
-                    } else {
-                        false
-                    }
-                };
+                let use_z = current_backend == AiBackend::ClaudeZ;
 
                 match claude::compact_session(&sid, use_z).await {
                     Ok(_) => {
@@ -1010,6 +1158,12 @@ impl EventHandler for Handler {
 
         // Handle slash command passthrough
         if content.starts_with("!slash ") {
+            let current_backend = get_channel_backend(&ctx, channel_id).await;
+            if current_backend == AiBackend::Codex {
+                let _ = msg.channel_id.say(&ctx.http, "ℹ️ Codex 모드에서는 slash 명령을 지원하지 않습니다.").await;
+                return;
+            }
+
             let slash_cmd = content.trim_start_matches("!slash ").trim().to_string();
             if slash_cmd.is_empty() {
                 let _ = msg.channel_id.say(&ctx.http, "Usage: `!slash <command>` (e.g., `!slash compact`, `!slash cost`)").await;
@@ -1025,14 +1179,7 @@ impl EventHandler for Handler {
                 }
             };
 
-            let use_z = {
-                let data = ctx.data.read().await;
-                if let Some(z_channels) = data.get::<ZModeChannels>() {
-                    z_channels.read().await.contains(&channel_id)
-                } else {
-                    false
-                }
-            };
+            let use_z = current_backend == AiBackend::ClaudeZ;
 
             let display_cmd = slash_cmd.trim_start_matches('/');
             let _ = msg.channel_id.say(&ctx.http, format!("⚡ Running `/{}`...", display_cmd)).await;
@@ -1053,6 +1200,11 @@ impl EventHandler for Handler {
 
         // Handle plan command - run Claude in plan-only mode
         if content.starts_with("!plan ") || content.starts_with("!계획 ") {
+            let current_backend = get_channel_backend(&ctx, channel_id).await;
+            if current_backend == AiBackend::Codex {
+                let _ = msg.channel_id.say(&ctx.http, "⚠️ Codex 모드에서는 plan mode를 지원하지 않습니다.").await;
+                return;
+            }
             let plan_msg = content
                 .strip_prefix("!plan ")
                 .or_else(|| content.strip_prefix("!계획 "))
@@ -1155,10 +1307,18 @@ impl EventHandler for Handler {
 
             drop(data);
 
-            // 4. Kill any lingering claude/claude-z child processes
+            // 4. Kill any lingering claude/claude-z/codex child processes
             let _ = Command::new("pkill")
                 .arg("-f")
                 .arg("claude.*--dangerously-skip-permissions")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+
+            let _ = Command::new("pkill")
+                .arg("-f")
+                .arg("codex exec")
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -1402,6 +1562,7 @@ impl EventHandler for Handler {
                         **Text-only Commands:**\n\
                         `!plan <msg>` - Generate a plan without executing (read-only)\n\
                         `!z` - Toggle Z mode (claude-z)\n\
+                        `!codex` - Toggle Codex mode (OpenAI Codex CLI)\n\
                         `!human` - Toggle human-only mode (Neywa stops responding)\n\
                         `!restart` - Reset all Claude sessions (fixes MCP/connection issues)\n\n\
                         Just type a message to chat with AI.",
@@ -1410,9 +1571,9 @@ impl EventHandler for Handler {
                 }
                 "status" => {
                     let data = ctx.data.read().await;
-                    let is_z_mode = if let Some(z_channels) = data.get::<ZModeChannels>() {
-                        z_channels.read().await.contains(&channel_id)
-                    } else { false };
+                    let backend = if let Some(backends) = data.get::<ChannelBackends>() {
+                        backends.read().await.get(&channel_id).copied().unwrap_or(AiBackend::Claude)
+                    } else { AiBackend::Claude };
                     let is_processing = if let Some(processing) = data.get::<ProcessingChannels>() {
                         processing.read().await.contains_key(&channel_id)
                     } else { false };
@@ -1420,7 +1581,7 @@ impl EventHandler for Handler {
                         queue.read().await.get(&channel_id).map(|q| q.len()).unwrap_or(0)
                     } else { 0 };
 
-                    let mode = if is_z_mode { "⚡ Z mode (claude-z)" } else { "🤖 Normal mode (claude)" };
+                    let mode = backend.status_line();
                     let proc = if is_processing { "🔄 Processing" } else { "✅ Idle" };
                     let queue = if queue_size > 0 { format!("📬 Queue: {}", queue_size) } else { "📭 Queue: empty".to_string() };
                     format!("**v{}**\n{}\n{}\n{}", VERSION, mode, proc, queue)
@@ -1546,8 +1707,8 @@ impl EventHandler for Handler {
 
                     let use_z = {
                         let data = data_arc.read().await;
-                        if let Some(z_channels) = data.get::<ZModeChannels>() {
-                            z_channels.read().await.contains(&channel_id)
+                        if let Some(backends) = data.get::<ChannelBackends>() {
+                            backends.read().await.get(&channel_id).copied() == Some(AiBackend::ClaudeZ)
                         } else {
                             false
                         }
@@ -1605,8 +1766,8 @@ impl EventHandler for Handler {
 
                         let use_z = {
                             let data = data_arc.read().await;
-                            if let Some(z_channels) = data.get::<ZModeChannels>() {
-                                z_channels.read().await.contains(&channel_id)
+                            if let Some(backends) = data.get::<ChannelBackends>() {
+                                backends.read().await.get(&channel_id).copied() == Some(AiBackend::ClaudeZ)
                             } else {
                                 false
                             }
@@ -1824,7 +1985,7 @@ pub async fn run_bot() -> Result<()> {
         let sessions = load_sessions();
         data.insert::<SessionStorage>(Arc::new(RwLock::new(sessions)));
         data.insert::<LogsChannel>(Arc::new(RwLock::new(None)));
-        data.insert::<ZModeChannels>(Arc::new(RwLock::new(std::collections::HashSet::new())));
+        data.insert::<ChannelBackends>(Arc::new(RwLock::new(load_channel_backends())));
         data.insert::<MessageQueue>(Arc::new(RwLock::new(HashMap::new())));
         data.insert::<ProcessingChannels>(Arc::new(RwLock::new(HashMap::new())));
         data.insert::<HumanModeChannels>(Arc::new(RwLock::new(load_human_mode())));

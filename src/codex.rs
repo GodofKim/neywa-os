@@ -14,7 +14,7 @@ fn base_command() -> Result<Command> {
     let mut cmd = Command::new(cli_path);
     cmd.arg("exec")
         .arg("--model")
-        .arg("gpt-5.3-codex");
+        .arg("gpt-5.2");
     Ok(cmd)
 }
 
@@ -293,7 +293,7 @@ pub async fn run(message: &str) -> Result<String> {
     let output = Command::new(cli_path)
         .arg("exec")
         .arg("--model")
-        .arg("gpt-5.3-codex")
+        .arg("gpt-5.2")
         .arg("--json")
         .arg("--dangerously-bypass-approvals-and-sandbox")
         .arg(message)

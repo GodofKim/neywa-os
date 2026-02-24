@@ -1,6 +1,6 @@
 [package]
 name = "neywa"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 description = "AI-powered personal OS via Claude Code + Discord"
 authors = ["godofkim"]

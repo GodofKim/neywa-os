@@ -132,6 +132,25 @@ fn create_app_bundle(source_exe: &PathBuf) -> Result<()> {
         std::fs::set_permissions(&dest, perms)?;
     }
 
+    // Re-sign the .app bundle so macOS launches it without code-signature errors
+    #[cfg(target_os = "macos")]
+    {
+        let sign_output = Command::new("codesign")
+            .args(["--force", "--sign", "-", APP_BUNDLE_PATH])
+            .output();
+        match sign_output {
+            Ok(out) if out.status.success() => {
+                println!("Re-signed Neywa.app successfully");
+            }
+            Ok(out) => {
+                eprintln!("codesign warning: {}", String::from_utf8_lossy(&out.stderr));
+            }
+            Err(e) => {
+                eprintln!("Failed to run codesign: {}", e);
+            }
+        }
+    }
+
     println!("App bundle created: {}", APP_BUNDLE_PATH);
     Ok(())
 }

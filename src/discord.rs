@@ -2101,7 +2101,8 @@ async fn self_update() -> Result<()> {
 
     // Also update the .app bundle binary (preserves FDA permissions)
     // Skip if current_exe IS the app binary (self-copy truncates to 0 bytes!)
-    let app_binary = std::path::PathBuf::from("/Applications/Neywa.app/Contents/MacOS/neywa");
+    let app_bundle = std::path::PathBuf::from("/Applications/Neywa.app");
+    let app_binary = app_bundle.join("Contents/MacOS/neywa");
     if app_binary.exists() {
         let is_same = std::fs::canonicalize(&current_exe).ok()
             == std::fs::canonicalize(&app_binary).ok();
@@ -2113,6 +2114,27 @@ async fn self_update() -> Result<()> {
             }
         } else {
             tracing::info!("Binary already at app bundle path, skipping copy");
+        }
+    }
+
+    // Re-sign the .app bundle after binary replacement.
+    // Without this, macOS may refuse to launch the updated binary due to
+    // code signature mismatch, causing LaunchAgent KeepAlive to crash-loop.
+    #[cfg(target_os = "macos")]
+    {
+        let sign_output = std::process::Command::new("codesign")
+            .args(["--force", "--sign", "-", app_bundle.to_str().unwrap_or("/Applications/Neywa.app")])
+            .output();
+        match sign_output {
+            Ok(out) if out.status.success() => {
+                tracing::info!("Re-signed Neywa.app successfully");
+            }
+            Ok(out) => {
+                tracing::warn!("codesign warning: {}", String::from_utf8_lossy(&out.stderr));
+            }
+            Err(e) => {
+                tracing::warn!("Failed to run codesign: {}", e);
+            }
         }
     }
 
